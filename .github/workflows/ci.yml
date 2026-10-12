@@ -390,6 +390,7 @@ jobs:
           npm run verify:keyed-archive
           npm run verify:asset-catalog
           npm run verify:macos-bundle
+          npm run verify:installer-package
           npm run verify:legacy-simulator
           npm run verify:apple-dispatch
           npm run verify:interface-builder

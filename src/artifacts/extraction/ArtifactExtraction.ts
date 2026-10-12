@@ -3,10 +3,9 @@ import { lstat, realpath } from "node:fs/promises";
 import { compareUnicodeCodePoints } from "../../domain/unicodeCodePointOrder.js";
 import { digestCanonicalValue } from "../../domain/canonicalDigest.js";
 import { AsarArtifactReader } from "../AsarArtifactReader.js";
-import {
-  ArtifactPathRegistry,
-  normalizeArtifactPath,
-} from "../ArtifactPaths.js";
+import { XarArtifactReader } from "../XarArtifactReader.js";
+import { ArtifactPathRegistry } from "../ArtifactPaths.js";
+import { visitArtifactTree } from "../ArtifactTraversal.js";
 import {
   ArtifactReaderFailure,
   type ArtifactEntry,
@@ -97,28 +96,49 @@ const materializeArtifactInventoryInScope = async (
   signal?: AbortSignal,
 ): Promise<ArtifactExtractionResult> => {
   abortIfNeeded(signal);
-  const selectedOccurrences = snapshot.occurrences.filter(
+  const byId = new Map(
+    snapshot.occurrences.map((occurrence) => [
+      occurrence.occurrence_id,
+      occurrence,
+    ]),
+  );
+  // A file/slice occurrence that owns child occurrences was expanded as a
+  // container during the scan. Extraction re-expands the same gzip-cpio
+  // members but keeps ASAR members opaque as regular files.
+  const expandedContainerIds = new Set(
+    snapshot.occurrences
+      .map(({ parent_occurrence_id: id }) => id)
+      .filter((id): id is string => id !== null),
+  );
+  const reexpandsInExtraction = (occurrence: ArtifactOccurrence): boolean =>
+    expandedContainerIds.has(occurrence.occurrence_id) &&
+    occurrence.artifact_format !== "asar";
+  const insideOpaqueFile = (occurrence: ArtifactOccurrence): boolean => {
+    // Members nested under a container the reader will not expand remain
+    // represented by their containing regular file.
+    let parent =
+      occurrence.parent_occurrence_id === null
+        ? undefined
+        : byId.get(occurrence.parent_occurrence_id);
+    while (parent !== undefined) {
+      if (parent.entry_kind === "file" || parent.entry_kind === "slice")
+        return !reexpandsInExtraction(parent);
+      parent =
+        parent.parent_occurrence_id === null
+          ? undefined
+          : byId.get(parent.parent_occurrence_id);
+    }
+    return false;
+  };
+  const activeOccurrences = snapshot.occurrences.filter(
     (occurrence) =>
       (occurrence.entry_kind === "file" || occurrence.entry_kind === "slice") &&
-      occurrence.logical_path !== ".",
+      occurrence.hash_status !== "unavailable" &&
+      occurrence.logical_path !== "." &&
+      // Re-expanded containers materialize their children, not their own bytes.
+      !reexpandsInExtraction(occurrence) &&
+      !insideOpaqueFile(occurrence),
   );
-  const regularPaths = new Set(
-    selectedOccurrences.map(({ logical_path: path }) => path),
-  );
-  const activeOccurrences = selectedOccurrences.filter(({ logical_path }) => {
-    // Nested members remain represented by their containing regular file;
-    // only entries exposed by the active reader are materialized.
-    let path = logical_path;
-    for (
-      let slash = path.lastIndexOf("/");
-      slash >= 0;
-      slash = path.lastIndexOf("/")
-    ) {
-      path = path.slice(0, slash);
-      if (regularPaths.has(path)) return false;
-    }
-    return true;
-  });
   const selectedIds = new Set(
     activeOccurrences.map(({ occurrence_id: id }) => id),
   );
@@ -132,6 +152,11 @@ const materializeArtifactInventoryInScope = async (
     manifest: snapshot.manifest,
     integrityContradictions: snapshot.integrity_contradictions.filter(
       ({ occurrence_id: id }) => selectedIds.has(id),
+    ),
+    unavailablePaths: new Set(
+      snapshot.occurrences
+        .filter(({ hash_status }) => hash_status === "unavailable")
+        .map(({ logical_path }) => logical_path),
     ),
   };
   const selected = activeOccurrences.map((occurrence) => {
@@ -233,7 +258,15 @@ const materializeSelection = async ({
       if (cause instanceof SafeOutputTreeCreationFailure) output = cause.tree;
       throw cause;
     }
-    await writeSelectedEntries({ reader, output, byPath, extracted, signal });
+    await writeSelectedEntries({
+      reader,
+      output,
+      byPath,
+      extracted,
+      inventory,
+      integrityPolicy: input.integrityPolicy,
+      signal,
+    });
     localReaderOwner = undefined;
     const closeAttempt = await input.resourceScope.release(readerOwner);
     if (closeAttempt.kind === "failed")
@@ -285,47 +318,66 @@ const writeSelectedEntries = async ({
   output,
   byPath,
   extracted,
+  inventory,
+  integrityPolicy,
   signal,
 }: {
   readonly reader: ArtifactReader;
   readonly output: SafeOutputTree;
   readonly byPath: Map<string, SelectedOccurrence>;
   readonly extracted: ExtractedOccurrence[];
+  readonly inventory: ExtractionInventory;
+  readonly integrityPolicy: ArtifactIntegrityPolicyName;
   readonly signal: AbortSignal | undefined;
 }): Promise<void> => {
   const registry = new ArtifactPathRegistry();
-  for await (const entry of reader.entries(signal)) {
-    const path = normalizeArtifactPath(entry.path);
-    registry.add(path, entry.kind);
-    const selectedItem = byPath.get(path);
-    if (selectedItem === undefined) {
-      if (entry.kind === "file" || entry.kind === "slice")
-        throw new ArtifactReaderFailure(
-          "integrity",
-          `Regular artifact entry is missing from inventory: ${path}`,
-        );
-      continue;
-    }
-    preflight(entry);
-    const stream = await reader.open(entry, signal);
-    const written = await output.write(
-      path,
-      stream,
-      {
-        sha256: selectedItem.node.sha256,
-        bytes: selectedItem.node.size,
-      },
-      signal,
-    );
-    extracted.push({
-      artifact_id: selectedItem.node.artifact_id,
-      relative_path: written.relativePath,
-      sha256: written.sha256,
-      bytes_written: written.bytesWritten,
-      created: true,
-    });
-    byPath.delete(path);
-  }
+  await visitArtifactTree(
+    reader,
+    async ({ reader: currentReader, entry, path, container: expandable }) => {
+      // Traverse expanded PKG Payload/Scripts like inventory does, so nested
+      // members are materialized instead of silently skipped. An expanded
+      // member acts as a container: register it as a directory and leave its
+      // archive bytes to its children, since a file and a directory cannot
+      // share one output path.
+      registry.add(path, expandable ? "directory" : entry.kind);
+      if (expandable) return true;
+      const selectedItem = byPath.get(path);
+      if (selectedItem === undefined) {
+        if (
+          entry.contentUnavailable === true &&
+          inventory.unavailablePaths.has(path)
+        )
+          return false;
+        if (entry.kind === "file" || entry.kind === "slice")
+          throw new ArtifactReaderFailure(
+            "integrity",
+            `Regular artifact entry is missing from inventory: ${path}`,
+          );
+        return false;
+      }
+      preflight(entry);
+      const stream = await currentReader.open(entry, signal);
+      const written = await output.write(
+        path,
+        stream,
+        {
+          sha256: selectedItem.node.sha256,
+          bytes: selectedItem.node.size,
+        },
+        signal,
+      );
+      extracted.push({
+        artifact_id: selectedItem.node.artifact_id,
+        relative_path: written.relativePath,
+        sha256: written.sha256,
+        bytes_written: written.bytesWritten,
+        created: true,
+      });
+      byPath.delete(path);
+      return false;
+    },
+    { signal, integrity: integrityPolicy, expandAsar: false },
+  );
   if (byPath.size > 0)
     throw new ArtifactReaderFailure(
       "integrity",
@@ -385,7 +437,11 @@ const createExtractionResult = (
     provenance: [],
     integrity_contradictions: inventory.integrityContradictions,
     limitations: [
-      "All regular files in the active artifact were materialized; nested archive contents remain represented by their containing file.",
+      "All available selected regular files were materialized; expanded PKG Payload/Scripts archives are represented by their extracted children and other nested archive contents by their containing file.",
+      ...[...inventory.unavailablePaths].map(
+        (path) =>
+          `Unavailable member ${path} was not extracted; see its inventory occurrence for the reason.`,
+      ),
       ...(inventory.integrityContradictions.length === 0
         ? []
         : [
@@ -398,6 +454,7 @@ const createExtractionResult = (
 interface ExtractionInventory {
   readonly manifest: ArtifactGraphManifest;
   readonly integrityContradictions: readonly IntegrityContradiction[];
+  readonly unavailablePaths: ReadonlySet<string>;
 }
 
 const ZIP_FORMATS = ["ipa", "apk", "msix", "appx", "zip"] as const;
@@ -421,6 +478,7 @@ const requireExtractableFormat = async (
   if (
     !directory &&
     format !== "asar" &&
+    format !== "pkg" &&
     !isMachOFormat(format) &&
     !isZipFormat(format)
   )
@@ -444,6 +502,7 @@ const createReader = async (
     return new DirectoryArtifactReader(path);
   if (format === "asar") return new AsarArtifactReader(path);
   if (isZipFormat(format)) return new ZipArtifactReader(path, format);
+  if (format === "pkg") return new XarArtifactReader(path);
   return new MachOSliceArtifactReader(path, input.environment);
 };
 

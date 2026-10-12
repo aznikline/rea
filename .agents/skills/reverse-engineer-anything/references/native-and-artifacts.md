@@ -134,7 +134,12 @@ header, depending on the binary and analyzer version.
 ## Packages and extraction
 
 Use `inspect_artifact` for application bundles, archives, ZIP/APK/IPA/MSIX/AppX,
-ASAR, or DMG inputs when the artifact graph and findings help answer the
+ASAR, DMG, or PKG inputs. A PKG inventory includes Distribution, PackageInfo,
+the pre/postinstall scripts, and the gzip payload's files. Pbzx payloads are
+recorded only. Checksums declared in the PKG's table of contents are verified;
+with `integrity_policy: "record-and-continue"`, a mismatched member stays in
+the graph as `mismatched`, with the declared and observed values, and is not
+expanded. Inspect it when the artifact graph and findings help answer the
 question. It returns the complete artifact graph inline. Cite graph manifest
 IDs when using them.
 

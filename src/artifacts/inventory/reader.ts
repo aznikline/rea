@@ -3,6 +3,7 @@ import type { ArtifactReader } from "../ArtifactReader.js";
 import { DirectoryArtifactReader } from "../DirectoryArtifactReader.js";
 import { MachOSliceArtifactReader } from "../MachOSliceArtifactReader.js";
 import { NativeDmgArtifactReader } from "../NativeDmgArtifactReader.js";
+import { XarArtifactReader } from "../XarArtifactReader.js";
 import { ZipArtifactReader } from "../ZipArtifactReader.js";
 import type { ArtifactOccurrence } from "../../domain/artifactGraph.js";
 import {
@@ -16,6 +17,8 @@ export const createReader = (
   format: ArtifactOccurrence["artifact_format"],
   environment: Readonly<NodeJS.ProcessEnv>,
   rootSource?: StableRegularFileDescriptor,
+  /** The caller verifies declared member checksums itself (inventory scans do). */
+  options: { readonly callerVerifiesChecksums?: boolean } = {},
 ): ArtifactReader | undefined => {
   if (isZipPackageFormat(format))
     return new ZipArtifactReader(path, format, undefined, rootSource);
@@ -24,6 +27,10 @@ export const createReader = (
       return new DirectoryArtifactReader(path);
     case "asar":
       return new AsarArtifactReader(path);
+    case "pkg":
+      return new XarArtifactReader(path, {
+        verifyChecksums: options.callerVerifiesChecksums !== true,
+      });
     case "mach-o-universal":
       return process.platform === "darwin"
         ? new MachOSliceArtifactReader(path, environment, undefined, rootSource)

@@ -1,0 +1,107 @@
+import { isAbsolute } from "node:path";
+import { normalizeArtifactPath } from "./ArtifactPaths.js";
+import type { ArtifactEntry, ArtifactReader } from "./ArtifactReader.js";
+import { AsarArtifactReader } from "./AsarArtifactReader.js";
+import { CpioArtifactReader } from "./CpioArtifactReader.js";
+
+/** One reader entry plus its stable logical path and expansion eligibility. */
+export interface ArtifactTreeEntry {
+  readonly reader: ArtifactReader;
+  readonly entry: ArtifactEntry;
+  readonly path: string;
+  readonly container: boolean;
+}
+
+/**
+ * Shared inventory/extraction traversal. The visitor decides whether verified
+ * content may expand; this boundary owns nested paths, reader creation and
+ * cleanup so the two workflows cannot disagree about container topology.
+ */
+export const visitArtifactTree = async (
+  root: ArtifactReader,
+  visit: (item: ArtifactTreeEntry) => Promise<boolean>,
+  options: {
+    readonly signal?: AbortSignal | undefined;
+    readonly integrity?: "fail" | "record-and-continue";
+    readonly expandAsar?: boolean;
+    /**
+     * Receives each owned nested reader as it is created. Retained readers
+     * keep their cleanup ownership with the caller instead of being closed
+     * when the traversal finishes (inventory retains readers until its
+     * complete observation is built).
+     */
+    readonly retainReaders?: ArtifactReader[];
+    /**
+     * Bind an owned nested container to the bytes the visitor observed before
+     * its entries are consumed (e.g. ASAR snapshot integrity).
+     */
+    readonly prepareNested?: (
+      reader: ArtifactReader,
+      item: ArtifactTreeEntry,
+    ) => Promise<void>;
+  } = {},
+): Promise<void> => {
+  const stack = [
+    {
+      reader: root,
+      prefix: "",
+      iterator: root.entries(options.signal)[Symbol.asyncIterator](),
+      owned: false,
+    },
+  ];
+  try {
+    while (stack.length > 0) {
+      const frame = stack.at(-1);
+      if (frame === undefined) break;
+      const next = await frame.iterator.next();
+      if (next.done === true) {
+        stack.pop();
+        if (frame.owned) await frame.reader.close();
+        continue;
+      }
+      const entry = next.value;
+      // Charge the full retained namespace, including all enclosing prefixes,
+      // independently from each reader's own raw metadata/index charge.
+      const combined =
+        frame.prefix === "" ? entry.path : `${frame.prefix}/${entry.path}`;
+      root.decodedBudget?.consumeEntry(combined);
+      const path = normalizeArtifactPath(combined);
+      const cpio = entry.nestedArchive === "gzip-cpio";
+      const asar =
+        options.expandAsar !== false &&
+        entry.kind === "file" &&
+        path.toLowerCase().endsWith(".asar") &&
+        isAbsolute(entry.adapterKey);
+      const container =
+        !entry.encrypted && entry.contentUnavailable !== true && (cpio || asar);
+      const item = { reader: frame.reader, entry, path, container };
+      const expand = await visit(item);
+      if (!container || !expand) continue;
+      const parent = frame.reader;
+      const nested = cpio
+        ? new CpioArtifactReader(
+            (signal) => parent.open(entry, signal),
+            options.integrity ?? "fail",
+            parent.decodedBudget,
+          )
+        : new AsarArtifactReader(entry.adapterKey);
+      options.retainReaders?.push(nested);
+      await options.prepareNested?.(nested, item);
+      stack.push({
+        reader: nested,
+        prefix: path,
+        iterator: nested.entries(options.signal)[Symbol.asyncIterator](),
+        owned: options.retainReaders === undefined,
+      });
+    }
+  } finally {
+    await Promise.allSettled(
+      stack
+        .filter(({ owned }) => owned)
+        .map(async ({ reader, iterator }) => {
+          await iterator.return?.();
+          await reader.close();
+        }),
+    );
+  }
+};

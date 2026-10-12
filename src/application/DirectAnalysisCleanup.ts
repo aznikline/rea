@@ -47,7 +47,16 @@ export const directAnalysisCleanupFailure = (
         code: "cleanup_incomplete",
         retryable: false,
         details: {
-          ...primary.data.details,
+          ...(primary.data.details === undefined
+            ? {}
+            : Object.fromEntries(
+                // Optional projection fields may type as JsonValue|undefined;
+                // absent keys never carry a runtime undefined value.
+                Object.entries(primary.data.details).filter(
+                  (entry): entry is [string, JsonValue] =>
+                    entry[1] !== undefined,
+                ),
+              )),
           cleanup: "incomplete",
           resources: error.cleanupResources.slice(),
           execution_failure:

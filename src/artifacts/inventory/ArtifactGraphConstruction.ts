@@ -82,7 +82,12 @@ export const createOccurrence = (
     compressed_size: entry.compressedSize,
     executable: entry.executable,
     encrypted: entry.encrypted,
-    hash_status: entry.encrypted ? "unavailable" : "not-hashed",
+    hash_status:
+      entry.integrityMismatched === true
+        ? "mismatched"
+        : entry.encrypted || entry.contentUnavailable === true
+          ? "unavailable"
+          : "not-hashed",
     source_location:
       entry.byteOffset === null || entry.declaredSize === null
         ? null
@@ -142,10 +147,19 @@ export const materializeDirectoryNodes = (
       size: 0,
       format: "directory",
       contentState: "virtual",
+      ...(directory.hash_status === "mismatched"
+        ? {
+            limitations: [
+              ...directory.limitations,
+              "Directory structure identity is derived; its declared member integrity metadata disagreed.",
+            ],
+          }
+        : {}),
     });
     nodes.set(node.artifact_id, node);
     directory.artifact_id = node.artifact_id;
-    directory.hash_status = "verified";
+    if (directory.hash_status !== "mismatched")
+      directory.hash_status = "verified";
   }
 };
 

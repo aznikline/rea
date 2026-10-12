@@ -157,6 +157,7 @@
     "verify:apple-dispatch": "npm run build:cached && node scripts/verify/apple/dispatch.mjs",
     "verify:native-ui": "npm run build:cached && node scripts/verify-native-ui.mjs",
     "verify:keyed-archive": "npm run build:cached && node scripts/verify/apple/keyed-archive.mjs",
+    "verify:installer-package": "npm run build:cached && node scripts/verify/apple/installer-package.mjs",
     "verify:macos-bundle": "npm run build:cached && node scripts/verify/apple/macos-bundle.mjs",
     "verify:legacy-simulator": "npm run build:cached && node scripts/verify/apple/legacy-simulator.mjs",
     "verify:architecture-guards": "node scripts/verify/architecture-guards.mjs",

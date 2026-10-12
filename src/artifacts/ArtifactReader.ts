@@ -1,10 +1,16 @@
 import type { Readable } from "node:stream";
 import type { ArtifactCommand } from "../domain/artifactGraph.js";
 import type { ZipPackageFormat } from "../domain/zipPackageFormat.js";
+import type { ArtifactDecodedBudget } from "./ArtifactDecodedBudget.js";
 import type {
   AnalysisCleanupObservation,
   AnalysisPartialObservation,
 } from "../domain/analysisErrorBase.js";
+import type {
+  ArtifactChecksumObservation,
+  ArtifactIntegrityFailureDetails,
+} from "../domain/artifactOperationError.js";
+export type { ArtifactChecksumObservation } from "../domain/artifactOperationError.js";
 
 export interface ArtifactReaderFailureOptions extends ErrorOptions {
   readonly cleanup?: AnalysisCleanupObservation;
@@ -24,6 +30,21 @@ export interface ArtifactEntry {
   readonly unpacked: boolean;
   readonly limitations: readonly string[];
   readonly adapterKey: string;
+  /**
+   * Container checksum of the member's bytes in an algorithm other than
+   * SHA-256 (xar declares SHA-1 or MD5). The scan verifies it under the
+   * caller's integrity policy.
+   */
+  readonly declaredChecksum?: {
+    readonly algorithm: "sha1" | "md5" | "sha512";
+    readonly value: string;
+  };
+  /** The container records this member but does not hold its bytes, such as an unresolved hard link. */
+  readonly contentUnavailable?: boolean;
+  /** A consumed representation contradicted its declared integrity metadata. */
+  readonly integrityMismatched?: boolean;
+  /** Archive format of this member's own bytes, when the scan should expand it. */
+  readonly nestedArchive?: "gzip-cpio";
   /** Filesystem identity captured during traversal, when supplied by an adapter. */
   readonly sourceIdentity?: {
     readonly device: bigint;
@@ -92,9 +113,15 @@ export const sameArtifactEntry = (
 
 /** Read-only adapter over one directory, archive, or virtual container. */
 export interface ArtifactReader {
-  readonly format: "directory" | ZipPackageFormat | "asar" | "file";
+  readonly format: "directory" | ZipPackageFormat | "asar" | "pkg" | "file";
+  /** Shared safety budget for compressed representations and nested archives. */
+  readonly decodedBudget?: ArtifactDecodedBudget;
   entries(signal?: AbortSignal): AsyncIterable<ArtifactEntry>;
   open(entry: ArtifactEntry, signal?: AbortSignal): Promise<Readable>;
+  /** Checksums observed after the complete member stream has been consumed. */
+  integrityObservations?(
+    entry: ArtifactEntry,
+  ): readonly ArtifactChecksumObservation[];
   provenance(): readonly ArtifactCommand[];
   close(): Promise<void>;
 }
@@ -115,12 +142,7 @@ export class ArtifactReaderFailure extends Error {
       | "unavailable",
     message: string,
     options?: ArtifactReaderFailureOptions,
-    readonly details?: Readonly<{
-      logicalPath: string;
-      declaredSha256: string | null;
-      calculatedSha256: string | null;
-      unpacked: boolean;
-    }>,
+    readonly details?: ArtifactIntegrityFailureDetails,
   ) {
     super(message, options);
     this.name = "ArtifactReaderFailure";

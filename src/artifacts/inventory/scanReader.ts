@@ -1,16 +1,16 @@
-import { isAbsolute } from "node:path";
-
+import { ArtifactBudgetExceeded } from "../ArtifactDecodedBudget.js";
 import {
   annotateEnglishUnicodeCaseCollisions,
   ArtifactPathRegistry,
-  normalizeArtifactPath,
 } from "../ArtifactPaths.js";
+import { AsarArtifactReader } from "../AsarArtifactReader.js";
+import { visitArtifactTree } from "../ArtifactTraversal.js";
 import {
   ArtifactReaderFailure,
   type ArtifactEntry,
   type ArtifactReader,
+  type ArtifactChecksumObservation,
 } from "../ArtifactReader.js";
-import { AsarArtifactReader } from "../AsarArtifactReader.js";
 import type { ArtifactNode } from "../../domain/artifactGraph.js";
 import {
   classifyArtifactContent,
@@ -55,6 +55,8 @@ interface ScanContext {
   readonly registry: ArtifactPathRegistry;
   readonly expandedContainerIds: Set<string>;
   readonly ownedReaders: ArtifactReader[];
+  /** Observed member digests for containers the visitor allowed to expand. */
+  readonly expandedContainerSha256: Map<string, string>;
 }
 
 export const scanReader = async (
@@ -87,8 +89,9 @@ export const scanReader = async (
     registry: new ArtifactPathRegistry(),
     expandedContainerIds: new Set<string>(),
     ownedReaders,
+    expandedContainerSha256: new Map<string, string>(),
   };
-  await visitArtifactEntries(context, reader, "");
+  await visitArtifactEntries(context, reader);
   // Archive directories may appear after their children. Resolve containment
   // against the complete index before directory identities are materialized.
   resolveOccurrenceParents(
@@ -107,57 +110,42 @@ export const scanReader = async (
 const visitArtifactEntries = async (
   context: ScanContext,
   currentReader: ArtifactReader,
-  prefix: string,
 ): Promise<void> => {
-  const stack: Array<{
-    readonly reader: ArtifactReader;
-    readonly prefix: string;
-    readonly iterator: AsyncIterator<ArtifactEntry>;
-  }> = [
-    {
-      reader: currentReader,
-      prefix,
-      iterator: currentReader.entries(context.signal)[Symbol.asyncIterator](),
-    },
-  ];
-  let failure: { readonly cause: unknown } | undefined;
-  try {
-    while (stack.length > 0) {
-      const frame = stack.at(-1);
-      if (frame === undefined) break;
-      const next = await frame.iterator.next();
-      if (next.done) {
-        stack.pop();
-        continue;
-      }
-      const entry = next.value;
-      const logicalPath = normalizeArtifactPath(
-        frame.prefix.length === 0
-          ? entry.path
-          : `${frame.prefix}/${entry.path}`,
-      );
-      const expandableAsar = isExpandableAsar(entry, logicalPath);
-      context.registry.add(
-        logicalPath,
-        expandableAsar ? "directory" : entry.kind,
-      );
+  await visitArtifactTree(
+    currentReader,
+    async ({ reader, entry, path: logicalPath, container: expandable }) => {
+      context.registry.add(logicalPath, expandable ? "directory" : entry.kind);
       const occurrence = createOccurrence(entry, logicalPath, null);
-      let digested:
-        | {
-            readonly node: ArtifactNode;
-            readonly mismatched: boolean;
-            readonly classification: ReturnType<typeof classifyArtifactContent>;
-          }
-        | undefined;
+      let digested: DigestedEntry | undefined;
       try {
         digested = await digestArtifactEntry(
           context,
-          frame.reader,
+          reader,
           entry,
           logicalPath,
         );
       } catch (cause: unknown) {
-        if (!isUnavailableUnpackedEntry(cause, entry)) throw cause;
+        if (!isUnavailableUnpackedEntry(cause, entry)) {
+          // A streamed CRC, size-bound, or format failure is per-member
+          // evidence loss under record-and-continue: keep the occurrence
+          // unavailable with its diagnostic, without inventing a node.
+          if (
+            context.integrity.mode !== "record-and-continue" ||
+            cause instanceof ArtifactBudgetExceeded ||
+            !(cause instanceof ArtifactReaderFailure) ||
+            (cause.reason !== "integrity" &&
+              cause.reason !== "limit" &&
+              cause.reason !== "format")
+          )
+            throw cause;
+          occurrence.hash_status = "unavailable";
+          occurrence.limitations.push(
+            `Member content could not be verified: ${cause.message}`,
+          );
+          context.occurrences.push(occurrence);
+          context.occurrenceByPath.set(logicalPath, occurrence);
+          return false;
+        }
         occurrence.hash_status = "unavailable";
         occurrence.limitations.push(UNAVAILABLE_UNPACKED_LIMITATION);
       }
@@ -173,49 +161,84 @@ const visitArtifactEntries = async (
         if (digested.mismatched)
           occurrence.limitations.push(
             "Declared integrity metadata contradicts observed bytes.",
+            ...digested.mismatchDetails,
           );
       }
       context.occurrences.push(occurrence);
       context.occurrenceByPath.set(logicalPath, occurrence);
       if (
-        expandableAsar &&
+        expandable &&
         digested !== undefined &&
-        digested.classification.format === "asar" &&
-        !digested.mismatched
+        !digested.mismatched &&
+        (entry.nestedArchive === "gzip-cpio" ||
+          digested.classification.format === "asar")
       ) {
-        const nested = new AsarArtifactReader(entry.adapterKey);
-        context.ownedReaders.push(nested);
-        await nested.prepareContainer(digested.node.sha256, context.signal);
-        // Only traversed containers can own members, not opaque ASAR-named files.
+        context.expandedContainerSha256.set(
+          logicalPath,
+          digested.node.sha256,
+        );
+        // Only traversed containers can own members, not opaque archive-named files.
         context.expandedContainerIds.add(occurrence.occurrence_id);
-        stack.push({
-          reader: nested,
-          prefix: logicalPath,
-          iterator: nested.entries(context.signal)[Symbol.asyncIterator](),
-        });
+        return true;
       }
-    }
-  } catch (cause: unknown) {
-    failure = { cause };
-  } finally {
-    // Readers remain owned by the inventory until its complete observation is built.
-    for (const { iterator, prefix, reader } of stack.reverse()) {
-      try {
-        await iterator.return?.();
-      } catch (cause: unknown) {
-        failure = {
-          cause: ArtifactReaderFailure.withCleanup(
-            failure === undefined ? cause : failure.cause,
-            ArtifactReaderFailure.cleanupObservation(
-              cause,
-              `artifact traversal for ${prefix || reader.format}`,
-            ),
-          ),
-        };
-      }
-    }
-  }
-  if (failure !== undefined) throw failure.cause;
+      return false;
+    },
+    {
+      signal: context.signal,
+      integrity: context.integrity.mode,
+      // Nested readers remain owned by the inventory until its complete
+      // observation is built; the scope releases them afterwards.
+      retainReaders: context.ownedReaders,
+      prepareNested: async (nested, item) => {
+        if (nested instanceof AsarArtifactReader)
+          await nested.prepareContainer(
+            context.expandedContainerSha256.get(item.path),
+            context.signal,
+          );
+      },
+    },
+  );
+};
+
+interface DigestedEntry {
+  readonly node: ArtifactNode;
+  readonly mismatched: boolean;
+  readonly classification: ReturnType<typeof classifyArtifactContent>;
+  /** Declared and observed values of a non-SHA-256 checksum that disagreed. */
+  readonly mismatchDetails: readonly string[];
+}
+
+const checksumDescription = ({
+  representation,
+  algorithm,
+  declared,
+  observed,
+}: ArtifactChecksumObservation): string =>
+  `Declared ${representation} ${algorithm} ${declared} disagrees with observed ${observed}.`;
+
+const entryIntegrityFailure = (
+  entry: ArtifactEntry,
+  logicalPath: string,
+  observed: {
+    readonly sha256: string;
+    readonly checksumMismatches: readonly ArtifactChecksumObservation[];
+  },
+): ArtifactReaderFailure => {
+  const mismatchDetails = observed.checksumMismatches.map(checksumDescription);
+  return new ArtifactReaderFailure(
+    "integrity",
+    `Artifact integrity metadata disagrees with content: ${logicalPath}${mismatchDetails.length === 0 ? "" : ` (${mismatchDetails.join(" ")})`}`,
+    undefined,
+    {
+      logicalPath,
+      declaredSha256: entry.declaredSha256,
+      calculatedSha256: observed.sha256,
+      unpacked: entry.unpacked,
+      ...(observed.checksumMismatches.length === 0
+        ? {}
+        : { checksumMismatches: observed.checksumMismatches }),
+    },
+  );
 };
 
 const digestArtifactEntry = async (
@@ -223,35 +246,47 @@ const digestArtifactEntry = async (
   currentReader: ArtifactReader,
   entry: ArtifactEntry,
   logicalPath: string,
-): Promise<
-  | {
-      readonly node: ArtifactNode;
-      readonly mismatched: boolean;
-      readonly classification: ReturnType<typeof classifyArtifactContent>;
-    }
-  | undefined
-> => {
-  if ((entry.kind !== "file" && entry.kind !== "slice") || entry.encrypted)
+): Promise<DigestedEntry | undefined> => {
+  if (
+    (entry.kind !== "file" && entry.kind !== "slice") ||
+    entry.encrypted ||
+    entry.contentUnavailable === true
+  )
     return undefined;
+  const checksum = entry.declaredChecksum;
   const digest = await hashReadable(
     await currentReader.open(entry, context.signal),
     context.signal,
+    checksum?.algorithm,
   );
-  const mismatched =
+  const sha256Mismatch =
     entry.declaredSha256 !== null && entry.declaredSha256 !== digest.sha256;
-  if (mismatched && entry.declaredSha256 !== null) {
-    if (context.integrity.mode === "fail")
-      throw new ArtifactReaderFailure(
-        "integrity",
-        `Artifact integrity metadata disagrees with content: ${logicalPath}`,
-        undefined,
-        {
-          logicalPath,
-          declaredSha256: entry.declaredSha256,
-          calculatedSha256: digest.sha256,
-          unpacked: entry.unpacked,
-        },
-      );
+  const checksumMismatch =
+    checksum !== undefined && checksum.value !== digest.also;
+  const storedMismatches = (
+    currentReader.integrityObservations?.(entry) ?? []
+  ).filter(({ declared, observed }) => declared !== observed);
+  const mismatched =
+    sha256Mismatch || checksumMismatch || storedMismatches.length > 0;
+  const checksumMismatches = [
+    ...(checksumMismatch
+      ? [
+          {
+            representation: "decoded" as const,
+            algorithm: checksum.algorithm,
+            declared: checksum.value,
+            observed: digest.also ?? "unavailable",
+          },
+        ]
+      : []),
+    ...storedMismatches,
+  ];
+  if (mismatched && context.integrity.mode === "fail")
+    throw entryIntegrityFailure(entry, logicalPath, {
+      sha256: digest.sha256,
+      checksumMismatches,
+    });
+  if (sha256Mismatch && entry.declaredSha256 !== null)
     context.pendingContradictions.push({
       logicalPath,
       declaredSha256: entry.declaredSha256,
@@ -259,7 +294,6 @@ const digestArtifactEntry = async (
       entryKind: entry.kind,
       unpacked: entry.unpacked,
     });
-  }
   const classified =
     entry.kind === "slice"
       ? ({ kind: "universal-slice", format: "mach-o" } as const)
@@ -273,13 +307,9 @@ const digestArtifactEntry = async (
     }),
     mismatched,
     classification: classified,
+    mismatchDetails: checksumMismatches.map(checksumDescription),
   };
 };
-
-const isExpandableAsar = (entry: ArtifactEntry, logicalPath: string): boolean =>
-  entry.kind === "file" &&
-  logicalPath.toLowerCase().endsWith(".asar") &&
-  isAbsolute(entry.adapterKey);
 
 const isUnavailableUnpackedEntry = (
   cause: unknown,
