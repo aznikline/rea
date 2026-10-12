@@ -319,11 +319,15 @@ it.each(["success", "failure", "cancellation", "throw"] as const)(
     let snapshotPath: string | undefined;
     const runner: NativeCommandRunner = {
       async run(tool, args) {
-        snapshotPath = args.at(-1);
-        if (snapshotPath === undefined)
-          throw new Error("Missing command target");
-        expect(snapshotPath).not.toBe(target.path);
-        expect(await readFile(snapshotPath, "utf8")).toBe(CONTENT);
+        // Verification probes inspect the live signed code path; only the
+        // `-d` displays observe the digest-verified snapshot copy.
+        if (args.includes("-d")) {
+          snapshotPath = args.at(-1);
+          if (snapshotPath === undefined)
+            throw new Error("Missing command target");
+          expect(snapshotPath).not.toBe(target.path);
+          expect(await readFile(snapshotPath, "utf8")).toBe(CONTENT);
+        }
         if (outcome === "throw") throw new Error("Unexpected native failure");
         if (outcome === "failure")
           return err(new NativeCommandFailure(tool, "io"));
@@ -400,7 +404,9 @@ it.skipIf(process.platform !== "darwin")(
     let capturedPath: string | undefined;
     const runner: NativeCommandRunner = {
       async run(tool, args, options) {
-        capturedPath = args.at(-1);
+        // Only `-d` display probes inspect the private snapshot; verification
+        // probes intentionally run against the live signed code path.
+        if (args.includes("-d")) capturedPath = args.at(-1);
         await rename(selected, saved);
         await rename(replacement, selected);
         try {
@@ -422,11 +428,13 @@ it.skipIf(process.platform !== "darwin")(
       identifier: "rea.original",
     });
     if (!result.ok) throw result.error;
-    expect(
-      inspectSignatureSchema
-        .parse(result.value.result)
-        .provenance.map(({ command }) => command.at(-1)),
-    ).toEqual(["$ARTIFACT", "$ARTIFACT", "$ARTIFACT"]);
+    const inspected = inspectSignatureSchema
+      .parse(result.value.result)
+      .provenance.map(({ command }) => command.at(-1));
+    // Every codesign probe — snapshot displays and live-path verification —
+    // aliases the path it inspected rather than leaking it into provenance.
+    expect(inspected.length).toBeGreaterThan(0);
+    expect([...new Set(inspected)]).toEqual(["$ARTIFACT"]);
     if (capturedPath === undefined)
       throw new Error("Expected codesign invocation");
     await expect(lstat(dirname(capturedPath))).rejects.toMatchObject({

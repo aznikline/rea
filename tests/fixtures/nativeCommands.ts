@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { BinaryTarget } from "../../src/domain/binaryTargetTypes.js";
 import { ok } from "../../src/domain/result.js";
 import type {
@@ -96,13 +97,19 @@ const capture = (
 /** Build the Mach-O target identity used by native boundary fixtures. */
 export const nativeMachoTarget = (
   path: string,
-  sourcePath?: string,
+  /** The app bundle directory the target was opened from. */
+  bundle?: string,
 ): BinaryTarget & {
   readonly kind: "executable";
   readonly format: "mach-o";
 } => ({
   path,
-  ...(sourcePath === undefined ? {} : { sourcePath }),
+  ...(bundle === undefined
+    ? {}
+    : {
+        sourcePath: bundle,
+        bundleInfoPlist: join(bundle, "Contents/Info.plist"),
+      }),
   sha256: "0".repeat(64),
   kind: "executable",
   format: "mach-o",
@@ -113,9 +120,9 @@ export const nativeMachoTarget = (
 /** Register the actual bytes of a filesystem-backed native test target. */
 export const nativeMachoTargetForFile = async (
   path: string,
-  sourcePath?: string,
+  bundle?: string,
 ): Promise<ReturnType<typeof nativeMachoTarget>> => ({
-  ...nativeMachoTarget(path, sourcePath),
+  ...nativeMachoTarget(path, bundle),
   sha256: createHash("sha256")
     .update(await readFile(path))
     .digest("hex"),
