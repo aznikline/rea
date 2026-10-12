@@ -163,3 +163,48 @@ Statuses: `SUPPORTED` / `PARTIAL` / `REFUTED` / `UNKNOWN` / `NOT_RUN` /
 - Evidence: `webmcp/pilot-results.md`.
 - Unknowns: interaction-gated registrations; polyfill confirmation needs
   static/script channel; mid-load redirect (`target_not_allowed`) handling.
+
+## R3.2 updates
+
+### CUR-05 — L2 evidence now independently checkable; experiment program split
+- Status: SUPPORTED — Lead recomputed `evidence/hashes.txt` 5/5, canary
+  lengths (44/42) match `n`, sessionIds/timestamps cross-check, corrected
+  24.1 s delta confirmed.
+- Counting fix: raw breadcrumb excerpt has each record twice (log writes
+  duplicate breadcrumbs); only 2 deduplicated events counted. R3.2 tools
+  emit raw + deduped views separately.
+- `evidence/extract.sh` marked DEPRECATED (rewrites inputs, fixed paths,
+  launches target, no wait/cleanup). Replaced by `tools/run-experiment.sh`
+  (unique run dir, explicit intervention manifest), `tools/
+  extract-evidence.sh` (read-only, refuses overwrite), `tools/
+  verify-evidence.sh` (hash/field/timing/dup checks, no launch).
+
+### CUR-06 — L3 egress: EXECUTION AUTHORIZED (VM path only)
+- R3.2 authorization: one-shot revertible macOS VM; Cursor, mitmproxy,
+  temporary CA all inside guest; synthetic data only; no host trust/proxy/
+  pf/VPN changes; no host-user fallback. Fixed matrix R0 (none) / R1
+  (canary) / R2 (repeat). proxy-delivered / upstream-sent /
+  response-observed reported separately.
+- Status: IN PROGRESS — tart 2.40.1 installed (checksum-verified);
+  `macos-sequoia-vanilla` pull in progress; see `cursor/l3-egress-design.md`.
+
+### PKG-03 — `invalid Info.plist` mapping fixed on signature-posture
+- Status: SUPPORTED → fixed on `integration/feat/signature-posture`
+  commit `cede1a6f1` (pushed to fork). Per review: NOT a third upstream PR —
+  module does not exist on current main; attached to parent feature.
+- Benign oracle: ad-hoc signed app verifies valid; Info.plist tamper
+  reproduces exact codesign rejection; classifier now maps to `invalid`.
+  Negatives covered: operational failures and nested filenames containing
+  the diagnostic phrase stay non-invalid.
+- No attribution: `invalid` = verification result only, not who/when/why.
+- Note: unrelated pre-existing host failure — `machoSliceReader.test.ts`
+  lipo cpusubtype disagreement on macOS 27 /bin/ls (environmental).
+
+### OPS-01 — PR CI status
+- #2262 (head `64af56e82`, stale-comment fix pushed) and #2263 (head
+  `354ec7cee`): CI runs 38285835728 / 38283242870 / 38283351994 completed
+  with `action_required` and empty job lists = first-time-contributor
+  maintainer approval needed. Not a code failure; no further pushes made
+  to chase CI. Local tests remain separately reported.
+- Upstream main advanced to `ad08510a1` — recorded as new BASE reference;
+  R3.1 test identities preserved per old base.

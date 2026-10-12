@@ -1,4 +1,12 @@
 #!/bin/bash
+# DEPRECATED (R3.2): retained as the historical record of the exact commands
+# used for RUN-1. Do NOT execute — it rewrites inputs, uses fixed /tmp paths,
+# launches the target, and reads logs via globs with no wait/cleanup control.
+# Replacement, split by responsibility:
+#   ../tools/run-experiment.sh    (unique run dir, launch, wait, terminate)
+#   ../tools/extract-evidence.sh  (read-only, frozen run -> fresh out dir)
+#   ../tools/verify-evidence.sh   (hash/field/timing checks, no launch)
+#
 # REA-R3 Cursor L2 evidence extraction — exact commands used.
 # Run 1 identity: Cursor 3.24.12 (commit 37b865941ccb31e2fc90c685157534efca87f964),
 # dmg sha256 c5ed7193bfb906e2aae3f3f281c62cb979efd1b662c73524a15f1c4448734f5f.

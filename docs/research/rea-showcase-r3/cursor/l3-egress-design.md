@@ -1,47 +1,61 @@
-# L3 content-egress — preparation design (no trust changes made)
+# L3 content-egress — execution design (VM-authorized R3.2)
 
-Status: DESIGN ONLY. Nothing here has been executed; no certificate trust,
-pf, global proxy, or VPN state was or will be modified without separate
-explicit authorization.
+Status: EXECUTION AUTHORIZED for the VM path below, per R3.2 review. The
+"dedicated host user" option is explicitly NOT authorized. No host keychain/
+trust, proxy, pf, or VPN state may be modified; the host's role is limited
+to running `tart` and mounting a read-only artifacts directory into the VM.
 
 ## Goal
 
-Determine whether `ex_hs2` event bytes (and what fields) leave the client —
+Determine whether `ex_hs2` event bytes (and which fields) leave the client —
 the only question R3-CUR-RUN-1 left open.
 
-## Constraints (binding)
+## Environment
 
-- Dedicated test account or a revertible macOS test environment only — the
-  daily account's keychain/trust, proxy, pf, and VPN are out of scope.
-- Temporary CA exists only inside the experiment environment and is removed
-  with it; record cleanup and rollback steps before starting.
-- Synthetic data only (canary histories + isolated HOME, as in RUN-1).
-- No external disclosure emails without separate authorization.
+- Hypervisor: `tart` 2.40.1 (cirruslabs, Developer ID signed, sha256 of
+  tarball verified against release checksums — see
+  `evidence/tart-provenance.txt` once produced).
+- Guest: `ghcr.io/cirruslabs/macos-sequoia-vanilla:latest` (recorded by
+  digest after pull). Vanilla = no accounts, no toolchains.
+- Host mounts into guest via `tart run --dir` (read-only where supported):
+  - `cursor/` artifact directory (dmg/zip, hash-verified earlier)
+  - `tools/` (run-experiment.sh, extract-evidence.sh, verify-evidence.sh)
+- Synthetic data only; no personal Cursor/Claude/Codex/Apple account login.
+- mitmproxy + its temporary CA live INSIDE the guest only; `pf` UDP-443
+  block (if needed to defeat QUIC fallback) is guest-scoped, recorded as
+  an intervention, and reverted before the VM is destroyed.
+- Host VPN/fake-IP: the guest's default route is measured and recorded
+  (`route get` + destination IP check); if host VPN still NATs guest egress,
+  that is recorded as a coverage limitation, not silently assumed away.
 
-## Design options (evaluated)
+## Run matrix (fixed, R3.2)
 
-| Option | Trust impact | Field visibility | Notes |
-|---|---|---|---|
-| A. Dedicated macOS test user + mitmproxy (`--mode local` per-process) + user-login-keychain CA | test user only | full | preferred — isolation is OS-level, rollback = delete user |
-| B. Disposable VM (Tart/UTM) + mitmproxy + VM-only CA | none on host | full | heavier setup; cleanest boundary |
-| C. `SSLKEYLOGFILE` + own CA-free proxy | none | TLS app data via keylog | works only if Electron honors the env var — verify first (often doesn't for bundled network stacks) |
-| D. Plain HAR of Chromium network service via `--log-net-log` | none | netlog records hostnames + payload metadata, not decrypted bodies | useful complement, not a substitute |
+| Run | Inputs | Purpose |
+|---|---|---|
+| R0 | `--history none` | baseline startup traffic |
+| R1 | `--history canary`, unique run-scoped canary | local-read → event → egress chain |
+| R2 | fresh run dir, new canary, same as R1 | reproducibility check |
 
-## Semantics discipline (from review)
+All runs use `run-experiment.sh` inside the guest. `--disable-crash-reporter`
+is recorded in the manifest as an intervention (matching R3 RUN-1); if a
+baseline-without-it comparison is needed it is a separate labeled run.
 
-- "Client delivered bytes to the local proxy" ≠ "proxy forwarded to vendor."
-  Both legs must be observed; a MITM capture that only proves local delivery
-  is labeled `proxy-delivered`, not `egressed`.
-- Connect-RPC/protobuf bodies: record raw bytes first (`binary_fields`),
-  decode with `protoc --decode_raw`; third-party `.proto` files are
-  unverified mappings only.
-- Two run profiles, separately labeled: DEFAULT (fresh profile) and
-  INTERVENTION (explicitly documented flag/setting changes). Intervention
-  results never describe default behavior.
+## Semantics discipline
 
-## Blockers recorded
+- `proxy-delivered` ≠ `upstream-sent` ≠ `response-observed` — reported as
+  three separate fields per flow.
+- A MITM capture proving only local delivery is NOT egress evidence.
+- Connect-RPC/protobuf: raw bytes kept (`binary_fields`), `protoc
+  --decode_raw` first; third-party `.proto` = unverified mapping.
+- Certificate pinning, QUIC-only egress, or handshake failure are recorded
+  as coverage results, not negative egress results.
+- Raw breadcrumb records (with duplicates) and deduplicated views are kept
+  separate; duplicates never counted as multiple sends.
 
-- Cursor may pin certificates or use QUIC — a forced-TCP/failed-handshake
-  outcome is itself a result, labeled accordingly.
-- VPN fake-IP NAT on the host masks destination IPs — the test environment
-  must not inherit the daily-account VPN.
+## Cleanup
+
+1. `extract-evidence.sh --run <guest run dir> --out <fresh dir>` — sanitized
+   excerpts only; full captures and CA keys stay out of the repo.
+2. Delete guest mitmproxy CA + private key, remove guest pf rule.
+3. `tart delete rea-l3-vm`; record host-unchanged check (trust settings,
+   `scutil --proxy`, pf state snapshots taken before/after).

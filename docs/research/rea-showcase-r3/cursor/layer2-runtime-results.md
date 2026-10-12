@@ -42,6 +42,14 @@ All references below use the corrected value.
    "ex_hs2" {"tool":"ac","ts":1791787663000,"sessionId":"rea-r3-canary-claude","n":44}
    ```
 
+   Note (R3.2 review): the raw `ex_hs2-breadcrumbs.txt` excerpt contains
+   these two records **twice each** — the log writes the same breadcrumb
+   into two places/rotations. Raw records ≠ distinct events; only the two
+   deduplicated records above are counted. The R3.2 tools
+   (`tools/extract-evidence.sh`, `tools/verify-evidence.sh`) now emit
+   `breadcrumbs-raw.txt` (source file:line:offset, duplicates preserved)
+   and `breadcrumbs-deduped.txt` separately so this cannot be miscounted.
+
    Field mapping (observed, not claimed universal): `tool` codes `ac`/`cx`
    for claude/codex sources; `ts` = entry timestamp (ms); `sessionId` =
    **verbatim** session identifier from the history file; `n` = **character
