@@ -1,0 +1,8 @@
+=== benign-unsigned.pkg ===
+Package "benign-unsigned.pkg":
+   Status: no signature
+exit=1
+=== payload-only.pkg ===
+Package "payload-only.pkg":
+   Status: no signature
+exit=1

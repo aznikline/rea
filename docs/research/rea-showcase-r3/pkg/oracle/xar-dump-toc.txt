@@ -1,0 +1,186 @@
+=== benign-unsigned.pkg TOC ===
+<?xml version="1.0" encoding="UTF-8"?>
+<xar>
+ <toc>
+  <checksum style="sha1">
+   <size>20</size>
+   <offset>0</offset>
+  </checksum>
+  <creation-time>2026-10-12T07:49:10</creation-time>
+  <file id="1">
+   <name>Bom</name>
+   <type>file</type>
+   <inode>60051325</inode>
+   <deviceno>16777231</deviceno>
+   <mode>0644</mode>
+   <uid>501</uid>
+   <user>wizout</user>
+   <gid>20</gid>
+   <group>staff</group>
+   <atime>2026-10-12T07:49:10Z</atime>
+   <mtime>2026-10-12T07:49:10Z</mtime>
+   <ctime>2026-10-12T07:49:10Z</ctime>
+   <FinderCreateTime>
+    <time>1900-01-00T21:47:44</time>
+    <nanoseconds>0</nanoseconds>
+   </FinderCreateTime>
+   <ea id="0">
+    <name>com.apple.provenance</name>
+    <archived-checksum style="sha1">dc0d3dd24416bbe9d4137b25c68c0fc31fde4eed</archived-checksum>
+    <extracted-checksum style="sha1">0ee5e0f7fb7cef0977cf75afa178fbd30dcde235</extracted-checksum>
+    <encoding style="application/x-gzip"/>
+    <size>11</size>
+    <offset>20</offset>
+    <length>19</length>
+   </ea>
+   <data>
+    <archived-checksum style="sha1">7023a2267b5bf48f623c6f16d0496bcb8bb855c1</archived-checksum>
+    <extracted-checksum style="sha1">ff0401aff62ccb037c70eda4c3c8459bc8358d33</extracted-checksum>
+    <encoding style="application/x-gzip"/>
+    <size>36638</size>
+    <offset>39</offset>
+    <length>967</length>
+   </data>
+  </file>
+  <file id="2">
+   <name>Payload</name>
+   <type>file</type>
+   <inode>60051328</inode>
+   <deviceno>16777231</deviceno>
+   <mode>0644</mode>
+   <uid>501</uid>
+   <user>wizout</user>
+   <gid>20</gid>
+   <group>staff</group>
+   <atime>2026-10-12T07:49:10Z</atime>
+   <mtime>2026-10-12T07:49:10Z</mtime>
+   <ctime>2026-10-12T07:49:10Z</ctime>
+   <FinderCreateTime>
+    <time>1900-01-00T11:39:44</time>
+    <nanoseconds>0</nanoseconds>
+   </FinderCreateTime>
+   <ea id="0">
+    <name>com.apple.provenance</name>
+    <archived-checksum style="sha1">0ee5e0f7fb7cef0977cf75afa178fbd30dcde235</archived-checksum>
+    <extracted-checksum style="sha1">0ee5e0f7fb7cef0977cf75afa178fbd30dcde235</extracted-checksum>
+    <size>11</size>
+    <offset>1006</offset>
+    <encoding style="application/octet-stream"/>
+    <length>11</length>
+   </ea>
+   <data>
+    <archived-checksum style="sha1">75dfe27598b09fbe2433395144f4fbb7467d5803</archived-checksum>
+    <extracted-checksum style="sha1">75dfe27598b09fbe2433395144f4fbb7467d5803</extracted-checksum>
+    <size>569</size>
+    <offset>1017</offset>
+    <encoding style="application/octet-stream"/>
+    <length>569</length>
+   </data>
+  </file>
+  <file id="3">
+   <name>PackageInfo</name>
+   <type>file</type>
+   <data>
+    <archived-checksum style="sha1">20c655eb11a5aef3b12d39366833a4ed9feb48bd</archived-checksum>
+    <extracted-checksum style="sha1">5cf3f1edc0ecfe8109b44a1691972e92ba630524</extracted-checksum>
+    <encoding style="application/x-gzip"/>
+    <size>706</size>
+    <offset>1586</offset>
+    <length>319</length>
+   </data>
+  </file>
+ </toc>
+</xar>
+=== payload-only.pkg TOC ===
+<?xml version="1.0" encoding="UTF-8"?>
+<xar>
+ <toc>
+  <checksum style="sha1">
+   <size>20</size>
+   <offset>0</offset>
+  </checksum>
+  <creation-time>2026-10-12T07:49:10</creation-time>
+  <file id="1">
+   <name>Bom</name>
+   <type>file</type>
+   <inode>60051339</inode>
+   <deviceno>16777231</deviceno>
+   <mode>0644</mode>
+   <uid>501</uid>
+   <user>wizout</user>
+   <gid>20</gid>
+   <group>staff</group>
+   <atime>2026-10-12T07:49:10Z</atime>
+   <mtime>2026-10-12T07:49:10Z</mtime>
+   <ctime>2026-10-12T07:49:10Z</ctime>
+   <FinderCreateTime>
+    <time>1900-01-00T22:38:56</time>
+    <nanoseconds>0</nanoseconds>
+   </FinderCreateTime>
+   <ea id="0">
+    <name>com.apple.provenance</name>
+    <archived-checksum style="sha1">dc0d3dd24416bbe9d4137b25c68c0fc31fde4eed</archived-checksum>
+    <extracted-checksum style="sha1">0ee5e0f7fb7cef0977cf75afa178fbd30dcde235</extracted-checksum>
+    <encoding style="application/x-gzip"/>
+    <size>11</size>
+    <offset>20</offset>
+    <length>19</length>
+   </ea>
+   <data>
+    <archived-checksum style="sha1">f34c36be37f118b15bc13598f36541610a8a4b82</archived-checksum>
+    <extracted-checksum style="sha1">1799ec806b31390081dcffecc50a279b314462d0</extracted-checksum>
+    <encoding style="application/x-gzip"/>
+    <size>36638</size>
+    <offset>39</offset>
+    <length>957</length>
+   </data>
+  </file>
+  <file id="2">
+   <name>Payload</name>
+   <type>file</type>
+   <inode>60051341</inode>
+   <deviceno>16777231</deviceno>
+   <mode>0644</mode>
+   <uid>501</uid>
+   <user>wizout</user>
+   <gid>20</gid>
+   <group>staff</group>
+   <atime>2026-10-12T07:49:10Z</atime>
+   <mtime>2026-10-12T07:49:10Z</mtime>
+   <ctime>2026-10-12T07:49:10Z</ctime>
+   <FinderCreateTime>
+    <time>1900-01-00T07:30:08</time>
+    <nanoseconds>0</nanoseconds>
+   </FinderCreateTime>
+   <ea id="0">
+    <name>com.apple.provenance</name>
+    <archived-checksum style="sha1">0ee5e0f7fb7cef0977cf75afa178fbd30dcde235</archived-checksum>
+    <extracted-checksum style="sha1">0ee5e0f7fb7cef0977cf75afa178fbd30dcde235</extracted-checksum>
+    <size>11</size>
+    <offset>996</offset>
+    <encoding style="application/octet-stream"/>
+    <length>11</length>
+   </ea>
+   <data>
+    <archived-checksum style="sha1">75dfe27598b09fbe2433395144f4fbb7467d5803</archived-checksum>
+    <extracted-checksum style="sha1">75dfe27598b09fbe2433395144f4fbb7467d5803</extracted-checksum>
+    <size>569</size>
+    <offset>1007</offset>
+    <encoding style="application/octet-stream"/>
+    <length>569</length>
+   </data>
+  </file>
+  <file id="3">
+   <name>PackageInfo</name>
+   <type>file</type>
+   <data>
+    <archived-checksum style="sha1">86a94bc680855c1d39b0d4f9a23dd502943c52dd</archived-checksum>
+    <extracted-checksum style="sha1">0002ce3295874069dbb42e09d7d2a84c6e914e92</extracted-checksum>
+    <encoding style="application/x-gzip"/>
+    <size>679</size>
+    <offset>1576</offset>
+    <length>308</length>
+   </data>
+  </file>
+ </toc>
+</xar>

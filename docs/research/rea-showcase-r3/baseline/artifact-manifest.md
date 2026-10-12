@@ -17,20 +17,37 @@ Hash-source classes (do not conflate):
 
 | Artifact | SHA-256 (local-computed) | Version/commit (vendor-feed) | Hash corroboration |
 |---|---|---|---|
+| `Cursor-3.14.7-darwin-arm64.zip` | `393dc55f28c13992989ad62f73bb57e46b3600eb33886c15801f5864231ae958` | 3.14.7 / `a758f2241ca99fecf380180b6cbdbbce0f1f42cf` | matches cask-record |
+| `Cursor-3.20.21-darwin-arm64.zip` | `be54b6add6d30bcd40235be1f5a9d9bc65e0977ca2e55bee8fe011af73048c49` | 3.20.21 / `f09fca384ceca23f7bf21f9c23655b162641d747` | matches cask-record |
 | `Cursor-3.23.23-darwin-arm64.zip` | `0e58594d5fb53bc6c413b36690e94e79f7fd487f8302224152321298990473f8` | 3.23.23 / `2dac2428994fe34f12658d9ecad1541b98db2c04` | matches cask-record |
 | `Cursor-3.24.9-darwin-arm64.zip` | `30e9ece5856afaae63472aa66f19d83e4ac0d179b9db93649b5083cd8fd276cd` | 3.24.9 / `cd6d2a1f2e56e9841f0ed9c7c24542087b4e69be` | matches cask-record |
 | `Cursor-3.24.12-darwin-arm64.dmg` | `c5ed7193bfb906e2aae3f3f281c62cb979efd1b662c73524a15f1c4448734f5f` | 3.24.12 / `37b865941ccb31e2fc90c685157534efca87f964` | no independent hash record located; local-computed only |
 | `forum-174299.json` | `c0ca5900e87c1f123b1c0fd958a76d54c8a0955ce728b9fda7097440e3da5c3a` | n/a | community-published source (forum API capture) |
 | `policy-{terms-of-service,data-use,privacy,security,subprocessors}.html` | see `SHA256SUMS.txt` | n/a | vendor-published pages, captured 2026-10-12 |
 
-Extracted app trees (not committed): `cursor-3.23.23/`, `cursor-3.24.9/`,
-`cursor-3.24.12/` each contain `Cursor.app` with
-`Contents/Resources/app/out/vs/workbench/workbench.desktop.main.js`.
+Extracted app trees (not committed): `cursor-3.14.7/` and `cursor-3.20.21/`
+contain only the extracted `workbench/` JS; `cursor-3.23.23/`,
+`cursor-3.24.9/`, `cursor-3.24.12/` contain full `Cursor.app` trees.
 
-Static marker counts in `workbench.desktop.main.js` were identical across all
-three versions (L1 only; does not establish identical behavior):
-`externalCliAnalytics`×3, `ex_hs2`×2, `ex_hs`×4, `enable_ex_hs`×2,
-`history.jsonl`×2, `external-cli-analytics-poll`×1.
+Static marker counts in `workbench.desktop.main.js` were identical across
+**all five versions** (3.14.7 → 3.24.12): `externalCliAnalytics`×3,
+`ex_hs2`×2, `ex_hs`×4, `enable_ex_hs`×2, `history.jsonl`×2,
+`external-cli-analytics-poll`×1. Earliest observed = 3.14.7 (July build);
+first-introduction version remains UNKNOWN (L1 only; identical marker counts
+do not establish identical behavior).
+
+**Download-URL caveat (recorded):** under
+`downloads.cursor.com/production/<commit>/darwin/arm64/`, the versioned
+filename `Cursor-3.20.21-darwin-arm64.zip` returns a 263-byte error body;
+the working artifact name is non-versioned `Cursor-darwin-arm64.zip`. Its
+SHA-256 matches the cask-record.
+
+Oracle outputs for the pkg task are committed in-repo under
+`docs/research/rea-showcase-r3/pkg/oracle/`:
+`pkgutil-check-signature.txt`, `xar-tf.txt`, `xar-dump-toc.txt`,
+`malformed-oracle.txt`, `crafted-product-oracle.txt`,
+`InstallerAlert-oracle.txt`. Fixture `.pkg` binaries are not committed
+(regeneration commands in `pkg/correctness-report.md`).
 
 ## versus-pkg related samples (`/Users/wizout/op/targets/versus-pkg/`)
 

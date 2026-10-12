@@ -20,17 +20,19 @@ Statuses: `SUPPORTED` / `PARTIAL` / `REFUTED` / `UNKNOWN` / `NOT_RUN` /
 
 ## Entries
 
-### CUR-L1-01 — externalCliAnalytics dataflow exists in 3.23.23/3.24.9/3.24.12
+### CUR-L1-01 — externalCliAnalytics markers present in 3.14.7→3.24.12
 - Question: does the shipped bundle contain code that reads external CLI
   history files and constructs `ex_hs2` events?
-- Falsifiable claim: the marker set is present in all three preserved builds.
-- Status: SUPPORTED (marker presence only — L1).
+- Falsifiable claim: the marker set is present in all five preserved builds.
+- Status: SUPPORTED (marker presence only — L1). Earliest OBSERVED = 3.14.7;
+  first-introduction version UNKNOWN.
 - Evidence location: `baseline/artifact-manifest.md` marker counts; per-version
   grep over `workbench.desktop.main.js`.
 - Evidence layer: L1 static.
 - Alternative explanation: markers could be dead code, server-gated, or
-  behind settings; presence ≠ execution.
-- Unknowns: trigger conditions, field contents, send path, per-version diffs.
+  behind settings; presence ≠ execution (see CUR-L2-01 for execution in
+  3.24.12 only).
+- Unknowns: per-version code diffs inside traced spans (in progress).
 - Reproduction: `grep -o '<marker>' <version>/.../workbench.desktop.main.js | wc -l`.
 
 ### CUR-L2-01 — externalCliAnalytics executes and reads both CLI histories (3.24.12, default)
@@ -75,3 +77,61 @@ Statuses: `SUPPORTED` / `PARTIAL` / `REFUTED` / `UNKNOWN` / `NOT_RUN` /
   empty at snapshot — ambiguous.
 - Reproduction: authorized MITM or vendor-documented endpoint inspection,
   pending authorization.
+
+### PKG-01 — inspect_signature misclassified every .pkg (defect, fixed)
+- Claim: `rea inspect-signature <x.pkg>` reported `signed:false` /
+  "Artifact is not signed." for every pkg because the codesign-based path
+  had no format gate and cannot evaluate XAR-level signatures.
+- Status: SUPPORTED → defect CONFIRMED; fixed at the boundary.
+- Evidence: `pkg/correctness-report.md` §1–3; crafted `crafted-signed.pkg`
+  (real `<signature>` TOC element, oracle `pkgutil --check-signature` =
+  "invalid signature") produced identical `signed:false` to an unsigned pkg.
+- Fix: `integration/feat/pkg-inventory` commit `120c2769a` (pushed to fork) —
+  `inspect_signature` now refuses non-Mach-O targets with
+  `AnalysisCapabilityUnavailableError`; 78/78 boundary tests + check:fast.
+- Remaining gap (not fixed): inventory drops `<signature>` silently
+  (feature-sized); pbzx/member limitations don't aggregate to top-level
+  coverage; Distribution/PackageInfo unsemantic-parsed without limitation.
+
+### PKG-02 — InstallerAlert signature: signed but arm64 slice tampered, notarization revoked
+- Claim: the extracted `Mac-Installer.InstallerAlert` is a valid-looking
+  signed universal Mach-O; `codesign --verify --deep --strict` FAILS on the
+  arm64 slice ("invalid Info.plist (plist or signature have been
+  modified)"); `spctl` reports notarization revoked.
+- Status: SUPPORTED (oracle, offline, non-executing).
+- Evidence: `pkg/correctness-report.md` §4; `pkg/oracle/InstallerAlert-oracle.txt`.
+- Secondary finding: `rea-wt-sig` reports `verification.status:"unknown"`
+  instead of invalid — `"invalid Info.plist"` missing from
+  `INVALID_SIGNATURE_REASONS` (`CodesignVerification.ts:52-66`). Reported,
+  not fixed (different worktree scope).
+- Caveat: applies to this extracted binary only; nothing inferred about the
+  versus.pkg container, which remains NOT_RUN.
+
+### WEB-01 — `consequential` annotation dropped by normalization (fixed)
+- Claim: CDP `WebMCP.Annotation` carries optional `consequential`; REA's
+  `normalizeTool` dropped it.
+- Status: SUPPORTED → fixed, `fix/webmcp-annotations` commit `449c58a37`
+  (pushed to fork). true/false/absent(null)/older-capture distinctions
+  preserved; Evidence bundle + CLI re-read round-trip verified, including a
+  real zapier.com declaration (`consequential:false`) via `ev_e451abd5…`.
+- Note: `debugging` annotation exists on Chromium main (JS-side Chrome ≥156)
+  and is NOT surfaced — recorded gap.
+
+### WEB-02 — prior "dual-channel nobody does" claim retracted
+- Status: REFUTED. Mudpie.ai/Lazyweb ran 6,934 sites × two modes with
+  enrollment classes; see `webmcp/method-notes.md`. REA's surviving
+  differentiators: strictly passive (no invoke/evaluate/navigate), per-frame
+  identity, hash-bound Evidence provenance, machine-readable unavailable
+  classes.
+
+### WEB-03 — 5-site pilot validates method; classes distinguished
+- Claim: `rea discover-webmcp-tools` (Chrome 154, dedicated profile,
+  ~60 s/site, default vs `WebMCPTesting` flag) classifies sites correctly.
+- Status: SUPPORTED for pilot scope — zapier.com deployed-token (5 tools);
+  gillette.de code-present (token scoped third-party, doesn't enroll own
+  document — new sub-class); example.com negative; feverup.com polyfill
+  (CDP-invisible in both modes); cnn.com negative + 7 subframes excluded
+  `unsupported_url`.
+- Evidence: `webmcp/pilot-results.md`.
+- Unknowns: interaction-gated registrations; polyfill confirmation needs
+  static/script channel; mid-load redirect (`target_not_allowed`) handling.

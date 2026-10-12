@@ -1,0 +1,10 @@
+=== benign-unsigned.pkg ===
+Bom
+Payload
+PackageInfo
+exit=0
+=== payload-only.pkg ===
+Bom
+Payload
+PackageInfo
+exit=0

@@ -1,0 +1,23 @@
+== crafted-signed.pkg ==
+Package "crafted-signed.pkg":
+   Status: invalid signature
+exit=1
+Bom
+Payload
+PackageInfo
+== pbzx-payload.pkg ==
+Package "pbzx-payload.pkg":
+   Status: no signature
+exit=1
+Bom
+Payload
+PackageInfo
+== product.pkg ==
+Package "product.pkg":
+   Status: no signature
+exit=1
+benign-unsigned.pkg
+benign-unsigned.pkg/Bom
+benign-unsigned.pkg/Payload
+benign-unsigned.pkg/PackageInfo
+Distribution

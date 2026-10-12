@@ -9,10 +9,11 @@ captures are committed to this repository.**
 
 | Task | Position | Status |
 |---|---|---|
-| Cursor client data-flow audit | External flagship research; runtime minimal closed loop this round | IN PROGRESS |
-| `.pkg` inspection correctness | Independent correctness task in `rea-wt-pkg` worktree | IN PROGRESS |
-| WebMCP `consequential` fidelity + 5-site pilot | Independent small task; method validation only | IN PROGRESS |
+| Cursor client data-flow audit | External flagship research; runtime minimal closed loop this round | **L2 closed-loop PASS** (3.24.12): file read → `ex_hs2` constructed → queued → bookmark persisted, default env, privacyMode=true. L3 content egress: UNKNOWN (authorized MITM pending). L1 span-level trace: in progress |
+| `.pkg` inspection correctness | Independent correctness task in `rea-wt-pkg` worktree | **PASS**: defect confirmed + fixed (`120c2769a`, pushed); InstallerAlert: signed but arm64 tampered + notarization revoked |
+| WebMCP `consequential` fidelity + 5-site pilot | Independent small task; method validation only | **PASS**: fix `449c58a37` pushed; 5-site pilot classified all target classes |
 | `versus.pkg` container end-to-end | Requires original container; not substituted | BLOCKED / NOT_RUN |
+| Cursor content-level network egress | Requires authorized MITM / system-trust change | NOT_RUN — awaits authorization |
 
 ## Evidence layer rules (binding)
 

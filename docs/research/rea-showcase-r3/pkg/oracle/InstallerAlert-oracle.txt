@@ -1,0 +1,121 @@
+/Users/wizout/op/targets/versus-pkg/extracted/Ferret/FlexibleFerret/Mac-Installer.InstallerAlert: Mach-O universal binary with 2 architectures: [x86_64:Mach-O 64-bit executable x86_64] [arm64:Mach-O 64-bit executable arm64]
+/Users/wizout/op/targets/versus-pkg/extracted/Ferret/FlexibleFerret/Mac-Installer.InstallerAlert (for architecture x86_64):	Mach-O 64-bit executable x86_64
+/Users/wizout/op/targets/versus-pkg/extracted/Ferret/FlexibleFerret/Mac-Installer.InstallerAlert (for architecture arm64):	Mach-O 64-bit executable arm64
+e12031bc7ac1fa70cb802a508a8c520bb5431f0e5f303a7097e3e6c8fd3d147a  /Users/wizout/op/targets/versus-pkg/extracted/Ferret/FlexibleFerret/Mac-Installer.InstallerAlert
+Fat header in: /Users/wizout/op/targets/versus-pkg/extracted/Ferret/FlexibleFerret/Mac-Installer.InstallerAlert
+fat_magic 0xcafebabe
+nfat_arch 2
+architecture x86_64
+    cputype CPU_TYPE_X86_64
+    cpusubtype CPU_SUBTYPE_X86_64_ALL
+    capabilities 0x0
+    offset 16384
+    size 101248
+    align 2^14 (16384)
+architecture arm64
+    cputype CPU_TYPE_ARM64
+    cpusubtype CPU_SUBTYPE_ARM64_ALL
+    capabilities 0x0
+    offset 131072
+    size 101088
+    align 2^14 (16384)
+== codesign -dvvv ==
+Executable=/Users/wizout/op/targets/versus-pkg/extracted/Ferret/FlexibleFerret/Mac-Installer.InstallerAlert
+Identifier=Mac-Installer.InstallerAlert
+Format=Mach-O universal (x86_64 arm64)
+CodeDirectory v=20400 size=992 flags=0x0(none) hashes=20+7 location=embedded
+Hash type=sha256 size=32
+CandidateCDHash sha256=5ce14fcccf372058a9e41365ce059f88c3c2f76f
+CandidateCDHashFull sha256=5ce14fcccf372058a9e41365ce059f88c3c2f76f10726c93c379d899167253ad
+Hash choices=sha256
+CMSDigest=5ce14fcccf372058a9e41365ce059f88c3c2f76f10726c93c379d899167253ad
+CMSDigestType=2
+CDHash=5ce14fcccf372058a9e41365ce059f88c3c2f76f
+Signature size=4821
+Authority=Apple Development: Liseth Alejandra Trujillo Garcia (VFYPGAKSLY)
+Authority=Apple Worldwide Developer Relations Certification Authority
+Authority=Apple Root CA
+Signed Time=Sep 24, 2024 at 21:49:10
+Info.plist=not bound
+TeamIdentifier=58CD8AD5Z4
+Sealed Resources=none
+Internal requirements count=1 size=208
+Total signatures=1
+Chosen signature=1
+exit=0
+== codesign -d -r- ==
+Executable=/Users/wizout/op/targets/versus-pkg/extracted/Ferret/FlexibleFerret/Mac-Installer.InstallerAlert
+designated => identifier "Mac-Installer.InstallerAlert" and anchor apple generic and certificate leaf[subject.CN] = "Apple Development: Liseth Alejandra Trujillo Garcia (VFYPGAKSLY)" and certificate 1[field.1.2.840.113635.100.6.2.1] /* exists */
+== codesign --verify --deep --strict ==
+/Users/wizout/op/targets/versus-pkg/extracted/Ferret/FlexibleFerret/Mac-Installer.InstallerAlert: invalid Info.plist (plist or signature have been modified)
+In architecture: arm64
+exit=1
+== per-slice -d ==
+--- x86_64
+Executable=/Users/wizout/op/targets/versus-pkg/extracted/Ferret/FlexibleFerret/Mac-Installer.InstallerAlert
+Identifier=Mac-Installer.InstallerAlert
+Format=Mach-O thin (x86_64)
+CodeDirectory v=20400 size=992 flags=0x0(none) hashes=20+7 location=embedded
+VersionPlatform=1
+VersionMin=852224
+VersionSDK=852224
+Hash type=sha256 size=32
+CandidateCDHash sha256=c29d45f3679dc72edba9c86be75cc30e93718986
+CandidateCDHashFull sha256=c29d45f3679dc72edba9c86be75cc30e9371898647b98b4ef26ce7a7f5d977e3
+Hash choices=sha256
+CMSDigest=c29d45f3679dc72edba9c86be75cc30e9371898647b98b4ef26ce7a7f5d977e3
+CMSDigestType=2
+Executable Segment base=0
+Executable Segment limit=32768
+Executable Segment flags=0x1
+Page size=4096
+CDHash=c29d45f3679dc72edba9c86be75cc30e93718986
+Signature size=4821
+Authority=Apple Development: Liseth Alejandra Trujillo Garcia (VFYPGAKSLY)
+Authority=Apple Worldwide Developer Relations Certification Authority
+Authority=Apple Root CA
+Signed Time=Sep 24, 2024 at 21:49:10
+Info.plist=not bound
+TeamIdentifier=58CD8AD5Z4
+Sealed Resources=none
+Internal requirements count=1 size=208
+Total signatures=1
+Chosen signature=1
+exit=0
+--- arm64
+Executable=/Users/wizout/op/targets/versus-pkg/extracted/Ferret/FlexibleFerret/Mac-Installer.InstallerAlert
+Identifier=Mac-Installer.InstallerAlert
+Format=Mach-O thin (arm64)
+CodeDirectory v=20400 size=992 flags=0x0(none) hashes=20+7 location=embedded
+VersionPlatform=1
+VersionMin=852224
+VersionSDK=852224
+Hash type=sha256 size=32
+CandidateCDHash sha256=5ce14fcccf372058a9e41365ce059f88c3c2f76f
+CandidateCDHashFull sha256=5ce14fcccf372058a9e41365ce059f88c3c2f76f10726c93c379d899167253ad
+Hash choices=sha256
+CMSDigest=5ce14fcccf372058a9e41365ce059f88c3c2f76f10726c93c379d899167253ad
+CMSDigestType=2
+Executable Segment base=0
+Executable Segment limit=32768
+Executable Segment flags=0x1
+Page size=4096
+CDHash=5ce14fcccf372058a9e41365ce059f88c3c2f76f
+Signature size=4821
+Authority=Apple Development: Liseth Alejandra Trujillo Garcia (VFYPGAKSLY)
+Authority=Apple Worldwide Developer Relations Certification Authority
+Authority=Apple Root CA
+Signed Time=Sep 24, 2024 at 21:49:10
+Info.plist=not bound
+TeamIdentifier=58CD8AD5Z4
+Sealed Resources=none
+Internal requirements count=1 size=208
+Total signatures=1
+Chosen signature=1
+exit=0
+== spctl ==
+/Users/wizout/op/targets/versus-pkg/extracted/Ferret/FlexibleFerret/Mac-Installer.InstallerAlert: notarization indicates this code has been revoked
+exit=1
+== stapler ==
+xcode-select: error: tool 'stapler' requires Xcode, but active developer directory '/Library/Developer/CommandLineTools' is a command line tools instance
+exit=1

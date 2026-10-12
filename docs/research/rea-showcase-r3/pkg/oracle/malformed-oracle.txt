@@ -1,0 +1,27 @@
+=== truncated.pkg ===
+Package "truncated.pkg":
+   Status: package is invalid (checksum did not verify)
+exit=1
+Bom
+Payload
+PackageInfo
+=== corrupt-member.pkg ===
+Package "corrupt-member.pkg":
+   Status: package is invalid (checksum did not verify)
+exit=1
+Bom
+Payload
+PackageInfo
+=== bad-magic.pkg ===
+Could not open package: bad-magic.pkg
+exit=1
+Error opening xar archive: bad-magic.pkg
+=== corrupt-toc.pkg ===
+Entity: line 1: parser error : Extra content at the end of the document
+
+^
+Could not open package: corrupt-toc.pkg
+exit=1
+
+^
+Error opening xar archive: corrupt-toc.pkg
