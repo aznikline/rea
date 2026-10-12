@@ -35,6 +35,22 @@ Statuses: `SUPPORTED` / `PARTIAL` / `REFUTED` / `UNKNOWN` / `NOT_RUN` /
 - Unknowns: per-version code diffs inside traced spans (in progress).
 - Reproduction: `grep -o '<marker>' <version>/.../workbench.desktop.main.js | wc -l`.
 
+### CUR-L1-02 — dataflow fully traced; gate defaults ON; extra fields found
+- Claim: `workbench.contrib.externalCliAnalytics` (lifecycle Eventually)
+  runs `_poll()` at construction + hourly cron; gated by
+  `experimentService.checkFeatureGate("enable_ex_hs")` whose registry literal
+  is `{client:!0,default:!0}`; reads `~/.claude/history.jsonl`,
+  `~/.codex/history.jsonl`, AND `~/.claude/projects/<dashed-proj>/sessions-index.json`;
+  emits `ex_hs2{tool:"ac"|"cx", ts, sessionId verbatim, n=text-length,
+  msgCount(claude)}`; bookmarks via `externalCliAnalytics.lastTimestamp.*`.
+  Semantically stable across 3.14.7→3.24.12.
+- Status: SUPPORTED (L1, offsets + excerpts in `cursor/layer1-dataflow.md`).
+- Also: `workbench.contrib.pathInspection` emits `env_{cx,ac,az,gl,agent}` /
+  `env_ag` when competitor executables/apps are detected — distinct feature.
+- Unknowns: remote flag override; analyticsService internal gates; wire
+  egress (L3); privacyMode consult absent *in this path* — pipeline-level
+  gating unverified.
+
 ### CUR-L2-01 — externalCliAnalytics executes and reads both CLI histories (3.24.12, default)
 - Question: does the code path actually run and read external history files
   in a default environment?
