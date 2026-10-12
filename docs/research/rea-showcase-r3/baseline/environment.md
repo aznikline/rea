@@ -28,6 +28,13 @@ Stashes: none. Upstream push: not authorized for `morluto/rea` (403 for
 `aznikline`); pushes go to `fork` only. Remote branch deletion script
 `/Users/wizout/op/delete-dead-branches.sh` exists, unexecuted.
 
+Worktrees added after baseline capture:
+
+| Path | Branch | HEAD | Purpose |
+|---|---|---|---|
+| `/Users/wizout/op/rea-wt-webmcp` | `fix/webmcp-annotations` | `354ec7cee` | consequential fix + doc corrections → draft PR morluto/rea#2263 |
+| `/Users/wizout/op/rea-wt-siggate` | `fix/inspect-signature-non-macho` | `028054116` | signature gate fix off `origin/main` `d96550f2f` → draft PR morluto/rea#2262 |
+
 ## Installed/executing REA
 
 REA runs from source checkouts (no installed release build):

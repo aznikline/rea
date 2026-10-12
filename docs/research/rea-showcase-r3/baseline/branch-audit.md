@@ -11,7 +11,8 @@ strings, user paths): clean — see notes below.
 | Branch | REMOTE_EXACT_SHA | Merge-base w/ origin/main | Contents | Status |
 |---|---|---|---|---|
 | `research/showcase-r3` | `1522d8383ca2fe87c887031f45d5c5c24ff492d3` | `974f11d01` | this evidence program's docs only | evidence record |
-| `fix/webmcp-annotations` | `449c58a3732bbdfb6afead48f76a8194dfa10412` | `974f11d01` | `consequential` fidelity fix + tests + browser-observation prereq docs | **Draft-PR candidate (A)** |
+| `fix/webmcp-annotations` | `354ec7cee` (post-doc-fix; fix itself `449c58a37`) | `974f11d01` | `consequential` fidelity fix + tests + browser-observation prereq docs | **Draft PR opened: morluto/rea#2263** |
+| `fix/inspect-signature-non-macho` | `028054116` | `d96550f2f` | minimal gate fix cherry-picked from `120c2769a` onto current main, corrected comment | **Draft PR opened: morluto/rea#2262** |
 | `integration/feat/pkg-inventory` | `120c2769a5489906f52add62d14c5f3d8be3ced0` | `538f8cc72` | feat/pkg-inventory merge + `120c2769a` gate fix | merge snapshot held; gate fix → **Draft-PR candidate (B)** |
 | `integration/high-value` | `1502a9b0198bd043535364595bf08d04ad9f445c` | `538f8cc72` | merge of `feat/compatibility-first-analysis-20261012` (`d4faf3931`) + `codex/fix-intrinsic-invocation-boundaries` (`1502a9b01`) | integration snapshot; NOT an upstream PR package |
 | `integration/feat/signature-posture` | `4c0e06583be51c679651771f1cfedaddf92cb8f7` | `538f8cc72` | feat/signature-posture merge (`c3450b1bf`) + lint fix (`4c0e06583`) | review candidate — see gates |
