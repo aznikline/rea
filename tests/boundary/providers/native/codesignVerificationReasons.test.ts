@@ -57,6 +57,45 @@ it("keeps operational, unsigned, definite invalid and unrecognized failures dist
   expect(status("unrecognized failure")).toBe("unknown");
 });
 
+it("classifies the codesign Info.plist seal rejection as invalid and keeps the architecture line", async () => {
+  const path = "/Applications/Fixture.app";
+  const capture = await new NativeFixtureRunner().run("codesign", [
+    "--verify",
+    path,
+  ]);
+  if (!capture.ok) throw capture.error;
+  const stderr = `${path}: invalid Info.plist (plist or signature have been modified)\nIn architecture: arm64\n`;
+  const observed = signatureVerification(
+    { ...capture.value, exitCode: 1, stderr },
+    path,
+    false,
+  );
+  expect(observed.status).toBe("invalid");
+  expect(observed.diagnostics).toEqual([
+    `${path}: invalid Info.plist (plist or signature have been modified)`,
+    "In architecture: arm64",
+  ]);
+});
+
+it("does not classify a nested file named after the diagnostic as invalid", async () => {
+  const path = "/Applications/Fixture.app";
+  const capture = await new NativeFixtureRunner().run("codesign", [
+    "--verify",
+    path,
+  ]);
+  if (!capture.ok) throw capture.error;
+  const observed = signatureVerification(
+    {
+      ...capture.value,
+      exitCode: 1,
+      stderr: `${path}/Contents/invalid Info.plist: permission denied\n`,
+    },
+    path,
+    false,
+  );
+  expect(observed.status).toBe("unknown");
+});
+
 it("excludes complete selected paths with embedded newlines before classifying reasons", async () => {
   const path =
     "/Applications/permission denied\ncode object is not signed at all\nFixture.app";

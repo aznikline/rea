@@ -56,6 +56,7 @@ const INVALID_SIGNATURE_REASONS = [
   "code or signature modified",
   "file added:",
   "file modified:",
+  "invalid info.plist",
   "invalid or unsupported format",
   "invalid signature",
   "main executable failed strict validation",
