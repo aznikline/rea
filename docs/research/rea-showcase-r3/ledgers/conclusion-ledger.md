@@ -208,3 +208,51 @@ Statuses: `SUPPORTED` / `PARTIAL` / `REFUTED` / `UNKNOWN` / `NOT_RUN` /
   to chase CI. Local tests remain separately reported.
 - Upstream main advanced to `ad08510a1` — recorded as new BASE reference;
   R3.1 test identities preserved per old base.
+
+## R3.2b updates
+
+### CUR-07 — L2 positive did NOT reproduce in three host re-runs (R3.2)
+- smoketest2 (200 s), smoketest3 (240 s, died mid-manifest — script
+  defect, fixed), smoketest6 (240 s, env -i, WAN 200 at launch):
+  **zero externalCliAnalytics activity** — no breadcrumbs, no bookmarks,
+  no sentry event log.
+- Correlating observation: RUN-1 state.vscdb = 101 keys incl. remote
+  `cursor.*` gates; all silent runs = 7 keys, zero `cursor.*`. Remote
+  config never landed → poll silent. Consistent with effective gate
+  needing remote resolution (client `default:!0` alone insufficient).
+  NOT proof; alternatives recorded in `cursor/layer2-repro-notes.md`.
+- Evidence (sanitized): `cursor/runs/smoketest2/`, `cursor/runs/smoketest6/`.
+- Tools hardened: `env -i` isolation (RUN-1's ambient env leak recorded),
+  process-group-safe termination, manifest records WAN probe + remaining
+  procs; verify-extract bugs fixed. See `cursor/tools/`.
+- RUN-1's positive stands as observed for that run only.
+
+### OPS-02 — L3 VM image pull in progress
+- tart 2.40.1 verified + installed user-local; sequoia-vanilla 23.7 GB
+  pull in progress through intermittent WAN (auto-retry). Guest mitmproxy
+  12.2.3 arm64 staged + hashed. Host trust/proxy baseline snapshotted for
+  post-experiment unchanged-check.
+
+## R3.2b updates
+
+### CUR-07 — L2 positive did NOT reproduce in three host re-runs (R3.2)
+- smoketest2 (200 s), smoketest3 (240 s, died mid-manifest — script
+  defect, fixed), smoketest6 (240 s, env -i, WAN 200 at launch):
+  **zero externalCliAnalytics activity** — no breadcrumbs, no bookmarks,
+  no sentry event log.
+- Correlating observation: RUN-1 state.vscdb = 101 keys incl. remote
+  `cursor.*` gates; all silent runs = 7 keys, zero `cursor.*`. Remote
+  config never landed → poll silent. Consistent with effective gate
+  needing remote resolution (client `default:!0` alone insufficient).
+  NOT proof; alternatives recorded in `cursor/layer2-repro-notes.md`.
+- Evidence (sanitized): `cursor/runs/smoketest2/`, `cursor/runs/smoketest6/`.
+- Tools hardened: `env -i` isolation (RUN-1 ambient env leak recorded),
+  process-group-safe termination, manifest records WAN probe + remaining
+  procs; verify-extract bugs fixed. See `cursor/tools/`.
+- RUN-1's positive stands as observed for that run only.
+
+### OPS-02 — L3 VM image pull in progress
+- tart 2.40.1 verified + installed user-local; sequoia-vanilla 23.7 GB
+  pull in progress through intermittent WAN (auto-retry). Guest mitmproxy
+  12.2.3 arm64 staged + hashed. Host trust/proxy baseline snapshotted for
+  post-experiment unchanged-check.

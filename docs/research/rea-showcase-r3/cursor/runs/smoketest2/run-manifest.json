@@ -1,0 +1,44 @@
+{
+  "run_id": "smoketest2-1791827144-51158",
+  "history_mode": "canary",
+  "cursor_version_identity": "3.24.12 (commit 37b865941ccb31e2fc90c685157534efca87f964; dmg sha256 c5ed7193bfb906e2aae3f3f281c62cb979efd1b662c73524a15f1c4448734f5f)",
+  "cursor_app": "/Users/wizout/op/targets/cursor/cursor-3.24.12/Cursor.app/Contents/MacOS/Cursor",
+  "fake_home": "/tmp/rea-cursor-runs/smoketest2-1791827144-51158/home",
+  "launch_args": [
+    "--user-data-dir=/tmp/rea-cursor-runs/smoketest2-1791827144-51158/home/cursor-data",
+    "--disable-crash-reporter"
+  ],
+  "interventions": {
+    "disable_crash_reporter": true,
+    "isolated_home": true,
+    "isolated_user_data_dir": true,
+    "login": "none",
+    "extra_args": []
+  },
+  "synthetic_inputs": {
+    "claude": {
+      "file": "/tmp/rea-cursor-runs/smoketest2-1791827144-51158/home/.claude/history.jsonl",
+      "sessionId": "smoketest2-1791827144-51158-canary-claude",
+      "timestamp_ms": 1791817144885
+    },
+    "codex": {
+      "file": "/tmp/rea-cursor-runs/smoketest2-1791827144-51158/home/.codex/history.jsonl",
+      "session_id": "smoketest2-1791827144-51158-canary-codex",
+      "ts_seconds": 1791819144
+    }
+  },
+  "timing": {
+    "start_epoch_s": 1791827144.867,
+    "start_utc": "2026-10-12T17:45:44.867000+00:00",
+    "end_epoch_s": 1791827344.983,
+    "duration_s": 200
+  },
+  "launch_pid": 51166,
+  "child_pids": [
+    "51174",
+    "51176",
+    "51181",
+    "51183"
+  ],
+  "written_at_utc": "2026-10-12T17:49:07.132972+00:00"
+}

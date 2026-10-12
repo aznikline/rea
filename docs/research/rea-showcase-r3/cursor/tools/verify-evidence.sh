@@ -27,22 +27,20 @@ def check(name, ok, detail=""):
     print(f"{'PASS' if ok else 'FAIL'} {name} {detail}")
     if not ok: fails.append(name)
 
-# 1. evidence hashes
-recorded = {}
+# 1. evidence hashes — shasum output is "<hash>  <path>"; paths may be
+# absolute (synthetic inputs inside the run dir) or evidence-relative.
 hpath = os.path.join(ev, "hashes.txt")
 if os.path.exists(hpath):
     for line in open(hpath):
-        parts = line.split()
-        if len(parts) == 2: recorded[os.path.basename(parts[1])] = parts[0]
-for fn, want in recorded.items():
-    p = os.path.join(ev, fn)
-    if not os.path.exists(p):
-        p = os.path.join(os.path.dirname(ev), fn)  # inputs live outside
-    if os.path.exists(p):
-        got = hashlib.sha256(open(p, "rb").read()).hexdigest()
-        check(f"hash {fn}", got == want, got[:12])
-    else:
-        check(f"hash {fn}", False, "file not found (may be input outside evidence dir)")
+        parts = line.rsplit(None, 1)
+        if len(parts) != 2: continue
+        want, p = parts[0], parts[1].strip()
+        path = p if os.path.isabs(p) else os.path.join(ev, p)
+        if os.path.exists(path):
+            got = hashlib.sha256(open(path, "rb").read()).hexdigest()
+            check(f"hash {os.path.basename(path)}", got == want, got[:12])
+        else:
+            check(f"hash {p}", False, "file not found")
 
 # 2. raw vs deduped breadcrumb counts
 raw = open(os.path.join(ev, "breadcrumbs-raw.txt")).read().splitlines()

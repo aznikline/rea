@@ -1,0 +1,14 @@
+tart 2.40.1 — /tmp install, user-local (~/.local/opt/tart.app)
+source: https://github.com/openai/tart/releases/download/2.40.1/tart.tar.gz
+sha256 (release checksums.txt == local): 363e2701154a8155cbc1bb6d845430c9b42697d2a186bc49574471ca2877db46
+signature: Developer ID Application: Cirrus Labs, Inc. (9M2P8L4D89) — codesign valid inside .app bundle
+note: extracting the bare Mach-O out of the bundle invalidates the seal
+      ("invalid resource directory"); the binary is used in-place inside
+      tart.app, preserving signature integrity.
+
+guest image: ghcr.io/cirruslabs/macos-sequoia-vanilla:latest (pull in progress,
+digest to be recorded after completion)
+
+mitmproxy for guest: mitmproxy-12.2.3-macos-arm64.tar.gz
+sha256 (local): 0a09ee3b82569e8985aff8186e4792618b8e5d0c766098db093d09a87d4b013a
+(no independent second hash — local-computed only)

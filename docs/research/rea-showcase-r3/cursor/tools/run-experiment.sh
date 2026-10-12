@@ -40,7 +40,7 @@ case "$HISTORY" in none|canary) ;; *) echo "--history must be none|canary" >&2; 
 RUN_ID="${LABEL}-$(date +%s)-$$"
 RUN_DIR="$RUNS_ROOT/$RUN_ID"
 FH="$RUN_DIR/home"
-mkdir -p "$FH/.claude" "$FH/.codex" "$FH/cursor-data"
+mkdir -p "$FH/.claude" "$FH/.codex" "$FH/cursor-data" "$FH/tmp"
 
 START_EPOCH=$(python3 -c 'import time; print(f"{time.time():.3f}")')
 CANARY_TS_CLAUDE=$(python3 -c 'import time; print(int((time.time()-10000)*1000))')
@@ -60,11 +60,18 @@ fi
 
 (cd "$FH" && shasum -a 256 .claude/history.jsonl .codex/history.jsonl) > "$RUN_DIR/inputs-hashes.txt"
 
+# Record WAN reachability at launch — externalCliAnalytics gate resolution
+# may be network-dependent (see layer2-repro-notes.md).
+NET_PROBE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://api2.cursor.sh/ 2>/dev/null || echo "unreachable")
+
 # Intervention params are explicit: --disable-crash-reporter is NOT a default
 # launch and is recorded in the manifest as an intervention.
 LAUNCH_ARGS=("--user-data-dir=$FH/cursor-data" "--disable-crash-reporter" "${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}")
 
-env HOME="$FH" XDG_CONFIG_HOME="$FH/.config" \
+# env -i: do NOT inherit the ambient environment — leaked credentials in
+# the parent's environ were observed reaching the target's process env.
+env -i HOME="$FH" XDG_CONFIG_HOME="$FH/.config" PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+  LANG=en_US.UTF-8 USER=rea-exp LOGNAME=rea-exp TMPDIR="$FH/tmp" \
   "$CURSOR_APP" "${LAUNCH_ARGS[@]}" > "$RUN_DIR/launch.log" 2>&1 &
 LAUNCH_PID=$!
 
@@ -72,24 +79,22 @@ sleep "$DURATION"
 
 END_EPOCH=$(python3 -c 'import time; print(f"{time.time():.3f}")')
 
-# Terminate the recorded tree: children of the launch pid first, then the pid.
-CHILDREN=$(pgrep -P "$LAUNCH_PID" 2>/dev/null || true)
-for p in $CHILDREN; do
-  for g in $(pgrep -P "$p" 2>/dev/null); do kill "$g" 2>/dev/null || true; done
-  kill "$p" 2>/dev/null || true
-done
-kill "$LAUNCH_PID" 2>/dev/null || true
-sleep 2
-for p in $LAUNCH_PID $CHILDREN; do kill -9 "$p" 2>/dev/null || true; done
+# Terminate: Electron helpers do not stay in the launch pid's process
+# group/children — match on this run's unique user-data-dir path.
+CHILDREN=$(pgrep -f "user-data-dir=$FH/cursor-data" 2>/dev/null | grep -v "^$LAUNCH_PID$" || true)
+for p in $CHILDREN $LAUNCH_PID; do kill "$p" 2>/dev/null || true; done
+sleep 3
+for p in $CHILDREN $LAUNCH_PID; do kill -9 "$p" 2>/dev/null || true; done
 wait "$LAUNCH_PID" 2>/dev/null || true
+REMAIN=$(pgrep -f "user-data-dir=$FH/cursor-data" 2>/dev/null | wc -l | tr -d ' ' || true)
 
 EXTRA_JSON=$(printf '%s\n' "${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}" | python3 -c 'import json,sys; print(json.dumps([l.rstrip("\n") for l in sys.stdin if l.strip()]))')
 ARGS_JSON=$(printf '%s\n' "${LAUNCH_ARGS[@]}" | python3 -c 'import json,sys; print(json.dumps([l.rstrip("\n") for l in sys.stdin]))')
 
 RUN_ID="$RUN_ID" HISTORY="$HISTORY" CURSOR_VERSION="$CURSOR_VERSION" \
-CURSOR_APP="$CURSOR_APP" FH="$FH" START_EPOCH="$START_EPOCH" \
+CURSOR_APP="$CURSOR_APP" FH="$FH" NET_PROBE="$NET_PROBE" START_EPOCH="$START_EPOCH" \
 END_EPOCH="$END_EPOCH" DURATION="$DURATION" LAUNCH_PID="$LAUNCH_PID" \
-CHILDREN="$CHILDREN" CLAUDE_SID="$CLAUDE_SID" CODEX_SID="$CODEX_SID" \
+CHILDREN="$CHILDREN" REMAIN="$REMAIN" CLAUDE_SID="$CLAUDE_SID" CODEX_SID="$CODEX_SID" \
 CANARY_TS_CLAUDE="$CANARY_TS_CLAUDE" CANARY_TS_CODEX="$CANARY_TS_CODEX" \
 EXTRA_JSON="$EXTRA_JSON" ARGS_JSON="$ARGS_JSON" \
 python3 - "$RUN_DIR/run-manifest.json" <<'PYEOF'
@@ -120,8 +125,11 @@ m = {
              "start_utc": datetime.datetime.fromtimestamp(float(os.environ["START_EPOCH"]), datetime.timezone.utc).isoformat(),
              "end_epoch_s": float(os.environ["END_EPOCH"]),
              "duration_s": int(os.environ["DURATION"])},
+  "network_probe_at_launch": {"url": "https://api2.cursor.sh/", "http_code_or_error": os.environ["NET_PROBE"]},
   "launch_pid": int(os.environ["LAUNCH_PID"]),
   "child_pids": os.environ["CHILDREN"].split(),
+  "post_termination_remaining_processes": int(os.environ["REMAIN"]),
+  "environment_isolation": "env -i (ambient environment NOT inherited)",
   "written_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat()
 }
 with open(sys.argv[1], "w") as f:

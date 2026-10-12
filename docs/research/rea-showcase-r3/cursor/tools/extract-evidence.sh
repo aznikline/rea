@@ -62,9 +62,14 @@ else
   echo "sentry queue absent" > "$OUT_DIR/sentry-queue.json"
 fi
 
-# --- hashes of produced evidence + the synthetic inputs ---
-(cd "$OUT_DIR" && shasum -a 256 *) > "$OUT_DIR/hashes.txt"
-(cd "$RUN_DIR/home" && shasum -a 256 .claude/history.jsonl .codex/history.jsonl) >> "$OUT_DIR/hashes.txt" 2>/dev/null || true
 cp "$RUN_DIR/run-manifest.json" "$OUT_DIR/run-manifest.json"
+
+# --- hashes of produced evidence (excluding this file itself) and the
+# synthetic inputs, recorded with run-relative paths to avoid basename
+# collisions (.claude/history.jsonl vs .codex/history.jsonl) ---
+{
+  find "$OUT_DIR" -maxdepth 1 -type f ! -name 'hashes.txt' -exec shasum -a 256 {} + | sed "s|$OUT_DIR/||"
+  shasum -a 256 "$RUN_DIR/home/.claude/history.jsonl" "$RUN_DIR/home/.codex/history.jsonl" 2>/dev/null || true
+} > "$OUT_DIR/hashes.txt"
 
 echo "evidence extracted: $OUT_DIR"
