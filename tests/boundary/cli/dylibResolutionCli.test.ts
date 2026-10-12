@@ -12,6 +12,7 @@ import {
   machoImage,
   rpathCommand,
 } from "../../../src/artifacts/apple/MachoImage.fixture.js";
+import { dyldCacheFixture } from "../../../src/artifacts/apple/DyldSharedCache.fixture.js";
 import { dylibResolutionResultSchema } from "../../../src/domain/apple/dylibResolution.js";
 import { parseEvidence } from "../../../src/domain/evidence.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
@@ -192,7 +193,9 @@ describe("trace-dylib-resolution CLI", () => {
       }
     },
   );
+});
 
+describe("trace-dylib-resolution CLI inputs", () => {
   cliTest(
     "resolves a standalone Mach-O against its own directory",
     async ({ cli }) => {
@@ -247,6 +250,69 @@ describe("trace-dylib-resolution CLI", () => {
       expect(trace.coverage).toMatchObject({
         status: "partial",
         unparsed_images: ["Contents/Helpers/broken"],
+      });
+    },
+  );
+
+  cliTest(
+    "answers system install paths from a supplied shared cache",
+    async ({ cli }) => {
+      const directory = await createTestTempDirectory("rea-dylib-cache-");
+      await writeFiles(directory, {
+        tool: machoImage({
+          commands: [
+            buildVersionCommand(1),
+            dylibCommand(LC.LOAD_DYLIB, "/usr/lib/libSystem.B.dylib"),
+            dylibCommand(LC.LOAD_DYLIB, "/usr/lib/libnotcached.dylib"),
+            dylibCommand(LC.LOAD_DYLIB, "/usr/lib/swift/libswiftCore.dylib"),
+          ],
+        }),
+        // The .01 subcache holding libswiftCore is not written.
+        dyld_shared_cache_arm64e: dyldCacheFixture([
+          {
+            path: "/usr/lib/libSystem.B.dylib",
+            bytes: machoImage({
+              fileType: FILE_TYPE.dylib,
+              commands: [buildVersionCommand(1)],
+            }),
+          },
+          {
+            path: "/usr/lib/swift/libswiftCore.dylib",
+            bytes: machoImage({
+              fileType: FILE_TYPE.dylib,
+              commands: [buildVersionCommand(1)],
+            }),
+            inSubcache: true,
+          },
+        ]).main,
+      });
+      const result = await cli.run({
+        arguments: [
+          "trace-dylib-resolution",
+          join(directory, "tool"),
+          "--shared-cache",
+          join(directory, "dyld_shared_cache_arm64e"),
+          "--json",
+        ],
+        environment: ENVIRONMENT,
+      });
+      expect(result.exitCode, JSON.stringify(result.json)).toBe(0);
+      const trace = dylibResolutionResultSchema.parse(
+        (result.json as { normalized_result: unknown }).normalized_result,
+      );
+      expect(trace.shared_cache).toMatchObject({
+        path: join(directory, "dyld_shared_cache_arm64e"),
+        architecture: "arm64e",
+        os_version: "26.6.0",
+      });
+      expect(trace.edges.map(({ resolution }) => resolution.status)).toEqual([
+        "shared-cache",
+        "undetermined",
+        "undetermined",
+      ]);
+      expect(trace.coverage).toMatchObject({
+        status: "partial",
+        unverified_shared_cache_images: ["/usr/lib/swift/libswiftCore.dylib"],
       });
     },
   );
@@ -386,10 +452,14 @@ describe.skipIf(process.getuid?.() === 0)(
         await writeFiles(directory, {
           tool: machoImage({
             commands: [
+              buildVersionCommand(1),
               dylibCommand(LC.LOAD_DYLIB, "@loader_path/libsecret.dylib"),
             ],
           }),
-          "libsecret.dylib": machoImage({ fileType: FILE_TYPE.dylib }),
+          "libsecret.dylib": machoImage({
+            fileType: FILE_TYPE.dylib,
+            commands: [buildVersionCommand(1)],
+          }),
         });
         await chmod(join(directory, "libsecret.dylib"), 0o000);
         try {

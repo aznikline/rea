@@ -502,6 +502,7 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffects>> = {
   project_android_application_graph: evidence,
   project_apple_application_graph: evidence,
   project_harmony_application_graph: evidence,
+  inspect_dyld_shared_cache: evidence,
   open_binary: effects({ mutatesSession: true, launchesProcess: true }),
   close_binary: effects({
     mutatesSession: true,

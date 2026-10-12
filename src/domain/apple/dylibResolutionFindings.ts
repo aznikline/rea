@@ -1,8 +1,12 @@
+import { applePlatform, applePlatformLabel } from "./applePlatforms.js";
+import { cacheServes } from "./dyldPaths.js";
 import type {
   DylibEdge as Edge,
   DylibFinding as Finding,
+  DylibSharedCacheView,
   DylibTrace,
   MachoImageFacts,
+  MachoSlice,
 } from "./dylibResolution.js";
 
 export const deriveFindings = (
@@ -15,21 +19,40 @@ export const deriveFindings = (
     if (edge.resolution.status === "unresolved")
       findings.push(unresolvedFinding(edge, index));
     const resolvedAt = edge.candidates.findIndex(
-      ({ outcome }) => outcome === "resolved",
+      ({ outcome }) => outcome === "resolved" || outcome === "shared-cache",
     );
-    const earlier = edge.candidates
+    const earlierAbsent = edge.candidates
       .slice(0, Math.max(resolvedAt, 0))
       .filter(
         ({ source, outcome }) => source === "rpath" && outcome === "absent",
       )
       .map(({ path }) => path);
-    if (resolvedAt > 0 && earlier.length > 0)
+    const earlierUnknown = edge.candidates
+      .slice(0, Math.max(resolvedAt, 0))
+      .some(({ outcome }) =>
+        [
+          "outside-target",
+          "escapes-target",
+          "unsupported",
+          "undetermined",
+        ].includes(outcome),
+      );
+    const loaderQualifies =
+      edge.loader_conditional === true
+        ? " This loader itself loads only conditionally; if it never loads, this search never occurs."
+        : "";
+    const unknownQualifies = earlierUnknown
+      ? " An earlier candidate outside the analyzed root may still win at runtime, so this fallback loads only conditionally."
+      : edge.resolution.status === "conditional"
+        ? " Unmodeled environment overrides or other process search inputs may take precedence; placing an image at this rpath does not establish which image dyld will load."
+        : "";
+    if (resolvedAt > 0 && earlierAbsent.length > 0)
       findings.push({
         kind: "earlier-rpath-candidate-absent",
         edge_index: index,
         image: edge.loader,
         basis: "derived",
-        explanation: `The modeled dyld search checks ${earlier.join(", ")} before ${edge.resolution.image ?? edge.install_name}. A compatible Mach-O placed at an earlier modeled path could take precedence over that fallback, subject to unmodeled search inputs and code-signing library validation; library validation is not evaluated here (see inspect_signature).${edge.loader_conditional ? " This loader loads only conditionally; if it never loads, this search never occurs." : ""}${edge.resolution.status === "conditional" ? " Unmodeled environment overrides or earlier unknown candidates may take precedence; placing an image at this rpath does not establish which image dyld will load." : ""}`,
+        explanation: `The modeled dyld search checks ${earlierAbsent.join(", ")} before ${edge.resolution.image ?? edge.install_name}. A compatible Mach-O placed at an earlier modeled path could take precedence over that fallback, subject to unmodeled search inputs and code-signing library validation; library validation is not evaluated here (see inspect_signature).${loaderQualifies}${unknownQualifies}`,
       });
   });
   for (const { image, architecture } of roots) {
@@ -89,10 +112,61 @@ const unresolvedFinding = (edge: Edge, index: number): Finding => {
 export const DYLIB_RESOLUTION_LIMITATIONS = [
   "LC_LAZY_LOAD_DYLIB dependencies are resolved but not traversed, because dyld loads them only on first use.",
   "Slices are matched by dyld's graded architectures (an x86_64h process also loads x86_64). arm64e processes that disable pointer authentication can also load arm64 slices; that fallback is not modeled.",
-  "Absolute install names and rpaths are outside the analyzed root and are not evaluated, including /System and /usr/lib libraries that the dyld shared cache usually provides.",
   "Leaf and relative install names depend on dyld fallback paths, DYLD_* variables, and the working directory; they are undetermined.",
   "Load order follows dyld's dependents-first traversal in load-command order. An image reached through several chains is resolved once per process, with the rpath stack and conditionality of the first chain; a later request whose install name matches an already loaded image reuses it.",
   "@loader_path uses each image's symlink-resolved path within the analyzed root.",
   "Code-signing checks that can reject a found image, such as library validation and the hardened runtime, are not evaluated.",
   "Dylib compatibility versions are not compared. Apple's linker documentation describes a load-time rejection when an image's compatibility version is older than the loader requires, but dyld on macOS 26 was observed to load such an image.",
 ];
+
+/** A process root the supplied shared cache cannot answer for. */
+export interface UnservedRoot {
+  readonly image: string;
+  readonly architecture: string;
+  readonly reason: string;
+}
+
+/**
+ * Why the cache cannot serve a process slice, or undefined when it can:
+ * dyld maps only a cache built for the process's CPU family and platform.
+ */
+export const cacheMismatch = (
+  cache: DylibSharedCacheView,
+  slice: Pick<MachoSlice, "architecture" | "platforms">,
+): string | undefined => {
+  if (!cacheServes(cache.architecture, slice.architecture))
+    return `the ${cache.architecture} cache does not serve ${slice.architecture} processes`;
+  if (cache.platforms.length === 0)
+    return "the cache header does not record its platform";
+  if (slice.platforms.length === 0)
+    return "the process records no LC_BUILD_VERSION or LC_VERSION_MIN platform";
+  if (
+    !slice.platforms.some((id) =>
+      cache.platforms.some((platform) => platform.id === id),
+    )
+  )
+    return `the cache serves ${cache.platforms.map(applePlatformLabel).join(" and ")} processes, not ${slice.platforms.map((id) => applePlatformLabel(applePlatform(id))).join(" or ")}`;
+  return undefined;
+};
+
+export const sharedCacheLimitations = (
+  cache: DylibSharedCacheView | undefined,
+  unserved: readonly UnservedRoot[],
+): string[] => {
+  if (cache === undefined)
+    return [
+      "Absolute install names and rpaths are outside the analyzed root and are not evaluated, including /System and /usr/lib libraries that the dyld shared cache usually provides. Pass shared_cache to look them up in a cache.",
+    ];
+  return [
+    "Absolute install names and rpaths were looked up only in the supplied dyld shared cache; paths it does not list stay outside-target because the host filesystem outside the analyzed root is not read. Shared-cache hits assume no on-disk override (root or unzippered twin) though dyld checks the filesystem first; treat them as conditional when the external disk state is unknown. On another OS build the cache contents, and therefore these outcomes, can differ.",
+    ...unserved.map(
+      ({ image, architecture, reason }) =>
+        `The supplied shared cache was not used for ${image} (${architecture}): ${reason}. Its absolute paths stay outside-target.`,
+    ),
+    ...(cache.unavailableSubcaches.length === 0
+      ? []
+      : [
+          `Subcaches ${cache.unavailableSubcaches.join(", ")} of the supplied cache are unavailable; install paths listed there are undetermined and reported in coverage.unverified_shared_cache_images.`,
+        ]),
+  ];
+};

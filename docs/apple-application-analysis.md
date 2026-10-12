@@ -182,15 +182,16 @@ Resolution follows dyld:
 Each edge lists every candidate path tried, with its outcome: `resolved`,
 `absent`, `not-mach-o`, `malformed`, `unsupported` (recognized Mach-O outside
 parser coverage, such as big-endian images), `architecture-missing`,
-`outside-target`, `escapes-target`, or `undetermined`. Slices follow dyld's
+`outside-target`, `shared-cache`, `escapes-target`, or `undetermined`. Slices follow dyld's
 graded architectures, so an `x86_64h` process also loads `x86_64`. The edge's `resolution` is one of:
 
-| Status         | Meaning                                                                                                                                                   |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `resolved`     | An image inside the analyzed root loads, and no earlier candidate was undeterminable.                                                                     |
-| `conditional`  | An image inside the root resolves, but an earlier candidate outside the root (for example `/usr/lib/swift`) would win if it exists on the running system. |
-| `unresolved`   | Every candidate is definitively absent or unusable inside the root.                                                                                       |
-| `undetermined` | No candidate resolves inside the root, and some candidate lies outside it or depends on the environment.                                                  |
+| Status         | Meaning                                                                                                                                                                                                                                |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `resolved`     | An image inside the analyzed root loads, and no earlier candidate was undeterminable.                                                                                                                                                  |
+| `conditional`  | An image inside the root, or in the supplied shared cache, resolves, but an earlier candidate that REA cannot decide (for example `/opt/vendor/lib` or `/usr/lib/swift` without a cache) would win if it exists on the running system. |
+| `unresolved`   | Every candidate is definitively absent or unusable inside the root.                                                                                                                                                                    |
+| `undetermined` | No candidate resolves inside the root, and some candidate lies outside it or depends on the environment.                                                                                                                               |
+| `shared-cache` | An absolute install path, or an `@rpath` candidate outside the root, was found in the dyld shared cache passed as `shared_cache` (CLI `--shared-cache`). dyld loads the cached image, so later in-root candidates are unused.          |
 
 A `conditional` image is still traced, because it is the image the analyzed
 root supplies. Every edge below it has `loader_conditional: true`, and a
@@ -226,3 +227,62 @@ Reported command values are retained in all cases.
 `verify:macos-bundle` checks the parser against `otool -l` for every traced
 image. It also compares the predicted load order of two process roots with the
 images dyld actually loads (`DYLD_PRINT_LIBRARIES`).
+
+With `shared_cache`, absolute candidates are looked up in that cache's image
+list. A process uses the cache only when both of these hold:
+
+- the cache serves its CPU family (an arm64e cache serves arm64 and arm64e);
+- one of its `LC_BUILD_VERSION` or `LC_VERSION_MIN_*` platforms (reported per
+  slice as `platforms`) matches the cache's platform or alternate platform.
+
+An iOS cache extracted from an IPSW is therefore not used for a macOS
+executable. A limitation names each process root the cache was not used for,
+and why. The result's `shared_cache` names the cache path, UUID, architecture
+and OS version. Cached images are not traversed.
+
+An image listed in the cache but mapped in a missing or UUID-mismatched
+subcache is `undetermined`. It is listed in
+`coverage.unverified_shared_cache_images` and makes coverage partial. Without a
+cache, system paths stay `undetermined`.
+
+## dyld shared cache
+
+`inspect_dyld_shared_cache` reads a dyld shared cache file set selected by path.
+On current macOS this is
+`/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_arm64e`;
+a cache extracted from an IPSW also works. It runs without an open target.
+
+```sh
+rea inspect-dyld-shared-cache /System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_arm64e --image /usr/lib/libSystem.B.dylib --json
+```
+
+```json
+{
+  "name": "inspect_dyld_shared_cache",
+  "arguments": {
+    "cache_path": "/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_arm64e",
+    "images": ["/usr/lib/libSystem.B.dylib"]
+  }
+}
+```
+
+The result reports:
+
+- the magic, architecture, UUID, platform and OS version, any alternate platform
+  (Mac Catalyst), cache type, the development/production subtype for multi-caches
+  (including its raw ID when unknown), shared region and maximum slide;
+- every VM mapping, with the file that holds it;
+- every subcache by file suffix, with its UUID checked against the main cache.
+  A missing or mismatched subcache makes coverage `partial`, and images mapped
+  there are `unmapped`;
+- the complete image list with addresses.
+
+For each requested install path, the tool reads that image's load commands
+(install name, dependencies with their re-export, weak, upward and delayed-init
+flags, and rpaths) through the cache mappings. A path the cache does not
+contain is `absent`. Older single-file caches are read from their legacy header
+fields.
+
+Nothing is executed, slid or extracted. Slide info, local symbols and the
+cache's code signature are not parsed. The Evidence subject is the main cache
+file, identified by its digest.

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   traceDylibLoading,
+  type DylibSharedCacheView,
   type DylibTreeEntry,
   type DylibTreeView,
   type MachoDependency,
@@ -361,11 +362,23 @@ describe("dyld resolution outcomes: deriving path and weak-load outcomes", () =>
       ["earlier-rpath-candidate-absent", 0],
       ["dyld-environment-present", null],
     ]);
+    expect(trace.edges.map(({ resolution }) => resolution.status)).toEqual([
+      "conditional",
+      "undetermined",
+      "undetermined",
+    ]);
     expect(trace.findings[0]?.explanation).toContain(
       "Contents/MacOS/../Overrides/libfound.dylib",
     );
+    expect(trace.edges[0]?.candidates.map(({ outcome }) => outcome)).toEqual([
+      "absent",
+      "resolved",
+    ]);
     expect(trace.findings[0]?.explanation).toContain(
       "Unmodeled environment overrides",
+    );
+    expect(trace.findings[0]?.explanation).toContain(
+      "does not establish which image dyld will load",
     );
     expect(trace.coverage.status).toBe("partial");
   });
@@ -401,6 +414,7 @@ describe("dyld resolution outcomes: checking candidate format and compatibility"
       status: "partial",
       unparsed_images: ["Contents/MacOS/b/lib.dylib"],
       roots_without_architecture: [],
+      unverified_shared_cache_images: [],
     });
     expect(trace.images.map(({ path }) => path)).toEqual([
       MAIN,
@@ -670,9 +684,233 @@ describe("dyld slice compatibility and coverage", () => {
       status: "partial",
       unparsed_images: [broken],
       roots_without_architecture: [],
+      unverified_shared_cache_images: [],
     });
     expect(trace.images.find(({ path }) => path === broken)?.reason).toBe(
       "load command 0 has invalid cmdsize 0",
+    );
+  });
+});
+
+/** A macOS arm64e cache that lists libSystem and libswiftCore. */
+const cache = (
+  overrides: Partial<DylibSharedCacheView> = {},
+): DylibSharedCacheView => ({
+  architecture: "arm64e",
+  platforms: [
+    { id: 1, name: "macos" },
+    { id: 6, name: "maccatalyst" },
+  ],
+  unavailableSubcaches: [],
+  lookup: (path: string) =>
+    [
+      "/usr/lib/libSystem.B.dylib",
+      "/usr/lib/swift/libswiftCore.dylib",
+    ].includes(path)
+      ? "mapped"
+      : "absent",
+  image: () => Promise.resolve(parsed(slice({ architecture: "arm64e" }))),
+  ...overrides,
+});
+
+describe("shared cache resolution", () => {
+  it("resolves cached system paths before bundled fallbacks", async () => {
+    const trace = await traceDylibLoading(
+      memoryView({
+        [MAIN]: executable({
+          rpaths: ["/usr/lib/swift", "@executable_path/../Frameworks"],
+          dependencies: [
+            dependency("/usr/lib/libSystem.B.dylib"),
+            dependency("@rpath/libswiftCore.dylib"),
+            dependency("/usr/lib/libgone.dylib"),
+          ],
+        }),
+        "Contents/Frameworks/libswiftCore.dylib": parsed(slice()),
+      }),
+      { roots: [MAIN], sharedCache: cache() },
+    );
+    expect(
+      trace.edges.map(({ install_name: name, resolution, candidates }) => [
+        name,
+        resolution,
+        candidates.map(({ outcome }) => outcome),
+      ]),
+    ).toEqual([
+      [
+        "/usr/lib/libSystem.B.dylib",
+        { status: "shared-cache", image: "/usr/lib/libSystem.B.dylib" },
+        ["shared-cache"],
+      ],
+      [
+        "@rpath/libswiftCore.dylib",
+        { status: "shared-cache", image: "/usr/lib/swift/libswiftCore.dylib" },
+        ["shared-cache"],
+      ],
+      [
+        "/usr/lib/libgone.dylib",
+        { status: "undetermined", image: null },
+        ["outside-target"],
+      ],
+    ]);
+    expect(trace.images.map(({ path }) => path)).toEqual([MAIN]);
+    expect(trace.coverage.status).toBe("complete");
+    expect(trace.limitations).toContainEqual(
+      expect.stringContaining("transitive dependencies were not traversed"),
+    );
+    expect(trace.limitations).toContainEqual(
+      expect.stringContaining(
+        "looked up only in the supplied dyld shared cache",
+      ),
+    );
+    expect(trace.limitations).not.toContainEqual(
+      expect.stringContaining("are not evaluated, including /System"),
+    );
+  });
+
+  it("does not treat mapped bytes as a load until they parse as a compatible Mach-O", async () => {
+    const root = memoryView({
+      [MAIN]: executable({
+        dependencies: [dependency("/usr/lib/libSystem.B.dylib")],
+      }),
+    });
+    const notMachO = await traceDylibLoading(root, {
+      roots: [MAIN],
+      sharedCache: cache({
+        image: () => Promise.resolve({ status: "not-mach-o" }),
+      }),
+    });
+    expect(notMachO.edges[0]?.resolution).toEqual({
+      status: "undetermined",
+      image: null,
+    });
+    expect(notMachO.coverage).toMatchObject({
+      status: "partial",
+      unverified_shared_cache_images: ["/usr/lib/libSystem.B.dylib"],
+    });
+    expect(notMachO.images.map(({ path }) => path)).toEqual([MAIN]);
+    const wrongArchitecture = await traceDylibLoading(root, {
+      roots: [MAIN],
+      sharedCache: cache({
+        image: () => Promise.resolve(parsed(slice({ architecture: "x86_64" }))),
+      }),
+    });
+    expect(wrongArchitecture.edges[0]?.candidates[0]?.outcome).toBe(
+      "undetermined",
+    );
+  });
+
+  it("keeps a cache hit conditional after an earlier undeterminable candidate", async () => {
+    const trace = await traceDylibLoading(
+      memoryView({
+        [MAIN]: executable({
+          rpaths: ["/opt/vendor/lib", "/usr/lib/swift"],
+          dependencies: [dependency("@rpath/libswiftCore.dylib")],
+        }),
+      }),
+      { roots: [MAIN], sharedCache: cache() },
+    );
+    expect(trace.edges[0]?.resolution).toEqual({
+      status: "conditional",
+      image: "/usr/lib/swift/libswiftCore.dylib",
+    });
+    expect(trace.edges[0]?.candidates.map(({ outcome }) => outcome)).toEqual([
+      "outside-target",
+      "shared-cache",
+    ]);
+  });
+});
+
+describe("shared cache applicability", () => {
+  it("does not consult a cache for another CPU family or platform", async () => {
+    const trace = await traceDylibLoading(
+      memoryView({
+        [MAIN]: executable({
+          architecture: "x86_64",
+          dependencies: [dependency("/usr/lib/libSystem.B.dylib")],
+        }),
+        "Contents/MacOS/Phone": executable({
+          platforms: [2],
+          dependencies: [dependency("/usr/lib/libSystem.B.dylib")],
+        }),
+        "Contents/MacOS/Old": executable({
+          platforms: [],
+          dependencies: [dependency("/usr/lib/libSystem.B.dylib")],
+        }),
+      }),
+      {
+        roots: [MAIN, "Contents/MacOS/Phone", "Contents/MacOS/Old"],
+        sharedCache: cache(),
+      },
+    );
+    expect(trace.edges.map(({ candidates }) => candidates[0]?.outcome)).toEqual(
+      ["outside-target", "outside-target", "outside-target"],
+    );
+    expect(trace.limitations).toEqual(
+      expect.arrayContaining([
+        `The supplied shared cache was not used for ${MAIN} (x86_64): the arm64e cache does not serve x86_64 processes. Its absolute paths stay outside-target.`,
+        "The supplied shared cache was not used for Contents/MacOS/Phone (arm64): the cache serves macos and maccatalyst processes, not ios. Its absolute paths stay outside-target.",
+        "The supplied shared cache was not used for Contents/MacOS/Old (arm64): the process records no LC_BUILD_VERSION or LC_VERSION_MIN platform. Its absolute paths stay outside-target.",
+      ]),
+    );
+    const generic = await traceDylibLoading(
+      memoryView({
+        [MAIN]: executable({
+          architecture: "arm64e",
+          dependencies: [dependency("/usr/lib/libSystem.B.dylib")],
+        }),
+      }),
+      { roots: [MAIN], sharedCache: cache({ architecture: "arm64" }) },
+    );
+    // A generic arm64 cache lacks the arm64e ABI.
+    expect(generic.edges[0]?.candidates[0]?.outcome).toBe("outside-target");
+    const unknownPlatform = await traceDylibLoading(
+      memoryView({
+        [MAIN]: executable({
+          dependencies: [dependency("/usr/lib/libSystem.B.dylib")],
+        }),
+      }),
+      { roots: [MAIN], sharedCache: cache({ platforms: [] }) },
+    );
+    expect(unknownPlatform.edges[0]?.candidates[0]?.outcome).toBe(
+      "outside-target",
+    );
+  });
+
+  it("leaves images in unavailable subcaches undetermined", async () => {
+    const trace = await traceDylibLoading(
+      memoryView({
+        [MAIN]: executable({
+          dependencies: [dependency("/usr/lib/libSystem.B.dylib")],
+        }),
+      }),
+      {
+        roots: [MAIN],
+        sharedCache: cache({
+          unavailableSubcaches: [".01 (missing)"],
+          lookup: () => "unverified",
+        }),
+      },
+    );
+    expect(trace.edges[0]?.resolution).toEqual({
+      status: "undetermined",
+      image: null,
+    });
+    expect(trace.coverage).toMatchObject({
+      status: "partial",
+      unverified_shared_cache_images: ["/usr/lib/libSystem.B.dylib"],
+    });
+    expect(trace.limitations).toContainEqual(
+      expect.stringContaining("Subcaches .01 (missing)"),
+    );
+  });
+
+  it("states that absolute paths are not evaluated without a cache", async () => {
+    const trace = await traceDylibLoading(
+      memoryView({ [MAIN]: executable({}) }),
+      { roots: [MAIN] },
+    );
+    expect(trace.limitations).toContainEqual(
+      expect.stringContaining("Pass shared_cache"),
     );
   });
 });
@@ -762,6 +1000,67 @@ describe("conditional loads", () => {
   });
 });
 
+describe("dependency loadability", () => {
+  it.each(["execute", "bundle", "other"] as const)(
+    "does not load cached or in-root %s images as dependencies",
+    async (fileType) => {
+      for (const useCache of [true, false]) {
+        const path = useCache
+          ? "/usr/lib/libSystem.B.dylib"
+          : "@executable_path/libinvalid.dylib";
+        const trace = await traceDylibLoading(
+          memoryView({
+            [MAIN]: executable({ dependencies: [dependency(path)] }),
+            "Contents/MacOS/libinvalid.dylib": parsed(
+              slice({ file_type: fileType }),
+            ),
+          }),
+          {
+            roots: [MAIN],
+            ...(useCache
+              ? {
+                  sharedCache: cache({
+                    image: async () =>
+                      parsed(
+                        slice({ architecture: "arm64e", file_type: fileType }),
+                      ),
+                  }),
+                }
+              : {}),
+          },
+        );
+        // A cached non-dylib is undetermined; an in-root non-dylib is
+        // rejected outright.
+        expect(trace.edges[0]?.resolution).toEqual({
+          status: useCache ? "undetermined" : "unresolved",
+          image: null,
+        });
+      }
+    },
+  );
+  it.each([{ platforms: [] }, { platforms: [2] }])(
+    "keeps cached unknown or incompatible platforms uncertain (%j)",
+    async ({ platforms }) => {
+      const trace = await traceDylibLoading(
+        memoryView({
+          [MAIN]: executable({
+            dependencies: [dependency("/usr/lib/libSystem.B.dylib")],
+          }),
+        }),
+        {
+          roots: [MAIN],
+          sharedCache: cache({
+            image: async () =>
+              parsed(slice({ architecture: "arm64e", platforms })),
+          }),
+        },
+      );
+      expect(trace.edges[0]?.resolution.status).toBe("undetermined");
+      expect(trace.coverage.status).toBe("partial");
+    },
+  );
+});
+
 it("propagates embedded search-path uncertainty through found, missing, lazy and descendant edges", async () => {
   const child = "Contents/MacOS/child.dylib";
   const trace = await traceDylibLoading(
@@ -774,18 +1073,20 @@ it("propagates embedded search-path uncertainty through found, missing, lazy and
           dependency("@executable_path/lazy.dylib", {
             command: "LC_LAZY_LOAD_DYLIB",
           }),
+          dependency("/usr/lib/libSystem.B.dylib"),
         ],
       }),
       [child]: parsed(
         slice({ dependencies: [dependency("@loader_path/gone.dylib")] }),
       ),
     }),
-    { roots: [MAIN] },
+    { roots: [MAIN], sharedCache: cache() },
   );
   expect(trace.edges.map(({ resolution }) => resolution.status)).toEqual([
     "conditional",
     "undetermined",
     "undetermined",
+    "conditional",
     "undetermined",
   ]);
   expect(trace.edges.at(-1)?.loader_conditional).toBe(true);

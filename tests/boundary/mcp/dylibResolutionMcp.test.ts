@@ -10,8 +10,8 @@ import { ArtifactProvider } from "../../../src/artifacts/ArtifactProvider.js";
 import {
   CPU,
   FILE_TYPE,
-  LC,
   buildVersionCommand,
+  LC,
   dylibCommand,
   dyldEnvironmentCommand,
   fatImage,

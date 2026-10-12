@@ -391,6 +391,7 @@ jobs:
           npm run verify:asset-catalog
           npm run verify:macos-bundle
           npm run verify:legacy-simulator
+          npm run verify:dyld-shared-cache
           npm run verify:apple-dispatch
           npm run verify:interface-builder
       - name: Run native Apple and process boundary regressions

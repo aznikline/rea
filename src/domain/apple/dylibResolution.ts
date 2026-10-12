@@ -1,7 +1,9 @@
 import { z } from "zod";
 
+import type { ApplePlatform } from "./applePlatforms.js";
 import {
   compatibleSlice,
+  cacheServes,
   directoryOf,
   expandPrefix,
   resolveTreePath,
@@ -16,6 +18,9 @@ import {
 import {
   DYLIB_RESOLUTION_LIMITATIONS,
   deriveFindings,
+  cacheMismatch,
+  sharedCacheLimitations,
+  type UnservedRoot,
 } from "./dylibResolutionFindings.js";
 
 /**
@@ -33,10 +38,12 @@ const rootRelativePathSchema = z
     "Use a normalized path relative to the analyzed root, without a leading or trailing '/', '//', or '.' and '..' segments",
   );
 
-/** Caller selection of process roots and one CPU slice. */
+/** Caller selection of process roots, one CPU slice, and an optional shared cache. */
 export const dylibResolutionInputSchema = z.strictObject({
   roots: z.array(rootRelativePathSchema).min(1).optional(),
   architecture: z.enum(["arm64", "arm64e", "x86_64"]).optional(),
+  /** Main dyld shared cache file whose image list answers system install paths. */
+  shared_cache: z.string().min(1).optional(),
 });
 
 const dependencyCommandSchema = z.enum([
@@ -106,6 +113,28 @@ export interface DylibTreeView {
   image(path: string): Promise<MachoImageFacts>;
 }
 
+/** Image list of one caller-supplied dyld shared cache. */
+export interface DylibSharedCacheView {
+  readonly architecture: string;
+  /** The cache's platform and alternate platform; empty when the header predates them. */
+  readonly platforms: readonly ApplePlatform[];
+  /** Subcaches whose bytes are missing or do not match, such as `.03 (missing)`. */
+  readonly unavailableSubcaches: readonly string[];
+  /**
+   * `mapped`: listed and inside an admitted mapping. That is address coverage,
+   * not a load: a shared-cache hit also requires `image` to parse a slice this
+   * process can load as a dylib on its platform. `unverified`: listed, but the
+   * subcache holding it is unavailable. `absent`: not listed.
+   */
+  lookup(path: string): "mapped" | "unverified" | "absent";
+  /**
+   * Load commands at a mapped install path. Undefined when `lookup` is not
+   * `mapped`. Tracing uses this only to confirm the hit; cached load commands
+   * are not traversed.
+   */
+  image(path: string): Promise<MachoImageFacts | undefined>;
+}
+
 const candidateSchema = z.strictObject({
   path: z.string(),
   source: z.enum([
@@ -127,6 +156,7 @@ const candidateSchema = z.strictObject({
     "not-loadable",
     "platform-mismatch",
     "outside-target",
+    "shared-cache",
     "escapes-target",
     "undetermined",
   ]),
@@ -141,7 +171,13 @@ const edgeSchema = z.strictObject({
   ...dependencySchema.shape,
   candidates: z.array(candidateSchema),
   resolution: z.strictObject({
-    status: z.enum(["resolved", "conditional", "unresolved", "undetermined"]),
+    status: z.enum([
+      "resolved",
+      "conditional",
+      "shared-cache",
+      "unresolved",
+      "undetermined",
+    ]),
     image: z.string().nullable(),
   }),
   install_name_matches: z.boolean().nullable(),
@@ -178,6 +214,16 @@ const imageSchema = z.strictObject({
 export const dylibResolutionResultSchema = z.strictObject({
   root_path: z.string(),
   target_sha256: digestSchema,
+  shared_cache: z
+    .strictObject({
+      path: z.string(),
+      uuid: z.string(),
+      architecture: z.string(),
+      os_version: z.string().nullable(),
+      main_file_sha256: digestSchema,
+      subcache_sha256: z.record(z.string(), digestSchema).default({}),
+    })
+    .nullable(),
   roots: z.array(
     z.strictObject({ image: z.string(), architecture: z.string() }),
   ),
@@ -188,6 +234,8 @@ export const dylibResolutionResultSchema = z.strictObject({
     status: z.enum(["complete", "partial"]),
     unparsed_images: z.array(z.string()),
     roots_without_architecture: z.array(z.string()),
+    /** Listed cache paths whose bytes or process-compatible dylib representation could not be verified. */
+    unverified_shared_cache_images: z.array(z.string()),
   }),
   limitations: z.array(z.string().min(1)),
 });
@@ -196,18 +244,19 @@ export type DylibResolutionResult = z.infer<typeof dylibResolutionResultSchema>;
 type Candidate = z.infer<typeof candidateSchema>;
 export type DylibEdge = z.infer<typeof edgeSchema>;
 export type DylibFinding = z.infer<typeof findingSchema>;
-type Edge = DylibEdge;
 
 /** Result before the adapter adds file digests and the analyzed root. */
 export type DylibTrace = Omit<
   DylibResolutionResult,
-  "root_path" | "target_sha256" | "images"
+  "root_path" | "target_sha256" | "shared_cache" | "images"
 > & {
   readonly images: readonly (Omit<
     DylibResolutionResult["images"][number],
     "sha256"
   > & { readonly sha256?: never })[];
 };
+
+type Edge = DylibEdge;
 
 interface LoadedImage {
   readonly slice: MachoSlice;
@@ -228,6 +277,10 @@ interface ProcessContext {
   readonly loaded: Map<string, LoadedImage>;
   readonly byInstallName: Map<string, string>;
   readonly images: Map<string, MachoImageFacts>;
+  /** The supplied cache, when it serves this process's architecture and platform. */
+  readonly sharedCache: DylibSharedCacheView | undefined;
+  /** Cached install paths whose bytes or loadability could not be verified. */
+  readonly unverifiedCacheImages: Set<string>;
 }
 
 interface CandidateTemplate {
@@ -291,8 +344,37 @@ const evaluateCandidate = async (
     rpath: template.rpath,
     rpath_owner: template.rpathOwner,
   };
-  if (template.expansion.scope === "outside")
+  if (template.expansion.scope === "outside") {
+    const sharedCache = context.sharedCache;
+    const cached = sharedCache?.lookup(template.expansion.path) ?? "absent";
+    if (cached === "mapped" && sharedCache !== undefined) {
+      // Address coverage is not a load. Confirm a compatible Mach-O without
+      // retaining its commands, so cache images stay leaves.
+      const facts = await sharedCache.image(template.expansion.path);
+      if (
+        facts?.status === "parsed" &&
+        facts.slices.some(
+          (slice) =>
+            cacheServes(slice.architecture, context.architecture) &&
+            slice.file_type === "dylib" &&
+            slice.platforms.some((id) => context.platforms.includes(id)),
+        )
+      )
+        return {
+          ...base,
+          outcome: "shared-cache",
+          resolved_path: template.expansion.path,
+        };
+      context.unverifiedCacheImages.add(template.expansion.path);
+      return { ...base, outcome: "undetermined", resolved_path: null };
+    }
+    // Listed in the cache, but its subcache is unavailable: dyld might load it.
+    if (cached === "unverified") {
+      context.unverifiedCacheImages.add(template.expansion.path);
+      return { ...base, outcome: "undetermined", resolved_path: null };
+    }
     return { ...base, outcome: "outside-target", resolved_path: null };
+  }
   if (template.expansion.scope === "undetermined")
     return { ...base, outcome: "undetermined", resolved_path: null };
   const lookup = await resolveTreePath(context.view, template.expansion.path);
@@ -405,6 +487,11 @@ const resolution = (candidates: readonly Candidate[]): Edge["resolution"] => {
         status: external ? "conditional" : "resolved",
         image: candidate.resolved_path,
       };
+    if (candidate.outcome === "shared-cache")
+      return {
+        status: external ? "conditional" : "shared-cache",
+        image: candidate.resolved_path,
+      };
     // dyld might load these; REA cannot decide them from the analyzed root.
     if (
       candidate.outcome === "outside-target" ||
@@ -440,7 +527,11 @@ const resolveDependency = async (
       const candidate = await evaluateCandidate(template, context);
       candidates.push(candidate);
       // dyld stops at the first loadable candidate.
-      if (candidate.outcome === "resolved") break;
+      if (
+        candidate.outcome === "resolved" ||
+        candidate.outcome === "shared-cache"
+      )
+        break;
     }
   const modeled = resolution(candidates);
   const searchUnknown =
@@ -552,6 +643,7 @@ export const traceDylibLoading = async (
     /** Mach-O files whose root role could not be classified because they did not parse. */
     readonly unclassified?: readonly string[];
     readonly architecture?: string;
+    readonly sharedCache?: DylibSharedCacheView;
     readonly signal?: AbortSignal;
   },
 ): Promise<DylibTrace> => {
@@ -562,6 +654,8 @@ export const traceDylibLoading = async (
   const edges: Edge[] = [];
   const withoutArchitecture: string[] = [];
   const environmentRoots = new Set<string>();
+  const unserved: UnservedRoot[] = [];
+  const unverifiedCacheImages = new Set<string>();
   for (const root of request.roots) {
     const facts = await view.image(root);
     images.set(root, facts);
@@ -588,6 +682,16 @@ export const traceDylibLoading = async (
       )
         environmentRoots.add(root);
       roots.push({ image: root, architecture: slice.architecture });
+      const mismatch =
+        request.sharedCache === undefined
+          ? undefined
+          : cacheMismatch(request.sharedCache, slice);
+      if (mismatch !== undefined)
+        unserved.push({
+          image: root,
+          architecture: slice.architecture,
+          reason: mismatch,
+        });
       edges.push(
         ...(await traceProcess(
           {
@@ -601,6 +705,9 @@ export const traceDylibLoading = async (
             loaded: new Map(),
             byInstallName: new Map(),
             images,
+            sharedCache:
+              mismatch === undefined ? request.sharedCache : undefined,
+            unverifiedCacheImages,
           },
           slice,
           request.signal,
@@ -633,14 +740,26 @@ export const traceDylibLoading = async (
       status:
         unparsed.length === 0 &&
         withoutArchitecture.length === 0 &&
-        environmentRoots.size === 0
+        environmentRoots.size === 0 &&
+        unverifiedCacheImages.size === 0
           ? "complete"
           : "partial",
       unparsed_images: unparsed,
       roots_without_architecture: withoutArchitecture,
+      unverified_shared_cache_images: [...unverifiedCacheImages].sort(compare),
     },
     limitations: [
       ...DYLIB_RESOLUTION_LIMITATIONS,
+      ...sharedCacheLimitations(request.sharedCache, unserved),
+      ...(edges.some(
+        (edge) =>
+          edge.command !== "LC_LAZY_LOAD_DYLIB" &&
+          edge.candidates.some(({ outcome }) => outcome === "shared-cache"),
+      )
+        ? [
+            "Cache-backed images are leaf references: their load commands and transitive dependencies were not traversed. Complete coverage describes the selected roots and in-root images, not a complete process-wide dependency graph. Use inspect_dyld_shared_cache with selected images to inspect cached load commands.",
+          ]
+        : []),
       ...(environmentRoots.size === 0
         ? []
         : [

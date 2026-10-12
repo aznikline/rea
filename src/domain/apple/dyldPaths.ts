@@ -38,6 +38,7 @@ export const resolveTreePath = async (
     if (entry.kind === "symlink") {
       hops += 1;
       if (hops > MAX_SYMLINK_HOPS) return { kind: "absent" };
+      // Tree providers convert host link syntax to this POSIX namespace.
       if (entry.target.startsWith("/")) return { kind: "escapes" };
       pending.unshift(...segmentsOf(entry.target));
       continue;
@@ -113,3 +114,13 @@ export const compatibleSlice = (
   }
   return undefined;
 };
+
+/**
+ * Whether a cache serves a process architecture. Compatibility is directional:
+ * an arm64e cache also serves arm64 processes and an x86_64h cache also serves
+ * x86_64 ones, but a generic cache lacks the arm64e or x86_64h ABI.
+ */
+export const cacheServes = (cache: string, process: string): boolean =>
+  cache === process ||
+  (cache === "arm64e" && process === "arm64") ||
+  (cache === "x86_64h" && process === "x86_64");

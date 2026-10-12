@@ -8,8 +8,8 @@ import {
   CPU,
   FILE_TYPE,
   LC,
-  codeSignatureCommand,
   buildVersionCommand,
+  codeSignatureCommand,
   dyldEnvironmentCommand,
   dylibCommand,
   dylibUseCommand,
@@ -153,6 +153,9 @@ describe("Mach-O load command reader: decodes thin-image load commands", () => {
         rpathCommand("/usr/lib/swift"),
         dyldEnvironmentCommand("DYLD_FRAMEWORK_PATH=@executable_path"),
         codeSignatureCommand(),
+        // A zippered image builds for macOS and Mac Catalyst.
+        buildVersionCommand(1),
+        buildVersionCommand(6),
       ],
     });
     const facts = await read(image);
@@ -167,6 +170,7 @@ describe("Mach-O load command reader: decodes thin-image load commands", () => {
       rpaths: ["@loader_path/Frameworks", "/usr/lib/swift"],
       dyld_environment: ["DYLD_FRAMEWORK_PATH=@executable_path"],
       code_signature_present: true,
+      platforms: [1, 6],
     });
     expect(
       slice?.dependencies.map(
@@ -338,6 +342,39 @@ describe("Mach-O load command reader: reads and validates universal binary slice
 });
 
 describe("Mach-O load command reader inputs", () => {
+  it("reads platforms from LC_VERSION_MIN_* and keeps unknown ids", async () => {
+    const versionMin = new Uint8Array(16);
+    const view = new DataView(versionMin.buffer);
+    view.setUint32(0, 0x25, true);
+    view.setUint32(4, 16, true);
+    const facts = await read(
+      machoImage({ commands: [versionMin, buildVersionCommand(99)] }),
+    );
+    expect(facts.status === "parsed" && facts.slices[0]?.platforms).toEqual([
+      2, 99,
+    ]);
+    // Legacy version-min commands on Intel slices denote simulators.
+    const intel = await read(
+      machoImage({ cpu: CPU.x86_64, commands: [versionMin] }),
+    );
+    expect(intel.status === "parsed" && intel.slices[0]?.platforms).toEqual([
+      7,
+    ]);
+    // A 16-byte LC_BUILD_VERSION, and one that declares a tool it lacks.
+    const truncated = buildVersionCommand(1).slice(0, 16);
+    new DataView(truncated.buffer).setUint32(4, 16, true);
+    expect(await read(machoImage({ commands: [truncated] }))).toEqual({
+      status: "malformed",
+      reason: "load command 0 is too short for LC_BUILD_VERSION",
+    });
+    const missingTool = buildVersionCommand(1);
+    new DataView(missingTool.buffer).setUint32(20, 1, true);
+    expect(await read(machoImage({ commands: [missingTool] }))).toEqual({
+      status: "malformed",
+      reason: "load command 0 LC_BUILD_VERSION tool records exceed cmdsize",
+    });
+  });
+
   it("names 32-bit and non-Mach-O inputs without guessing", async () => {
     const i386 = await read(
       machoImage({ cpu: { type: 7, subtype: 3 }, wide: false }),

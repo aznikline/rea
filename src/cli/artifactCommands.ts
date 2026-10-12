@@ -82,6 +82,12 @@ const registerDylibResolutionCommand = (
         .enum(["arm64", "arm64e", "x86_64"])
         .optional()
         .describe("Trace only this slice of each root"),
+      sharedCache: z
+        .string()
+        .optional()
+        .describe(
+          "Main dyld shared cache file used to answer system install paths",
+        ),
     }),
     run: ({ args, options }) =>
       logCliCommand(logger, CLI_COMMANDS.traceDylibResolution, () =>
@@ -93,6 +99,9 @@ const registerDylibResolutionCommand = (
             ...(options.architecture === undefined
               ? {}
               : { architecture: options.architecture }),
+            ...(options.sharedCache === undefined
+              ? {}
+              : { shared_cache: options.sharedCache }),
           },
           logger,
         ),

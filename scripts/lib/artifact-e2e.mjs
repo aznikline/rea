@@ -58,7 +58,7 @@ export async function artifactCliEvidence(
   return evidence;
 }
 
-/** Run a real stdio MCP subprocess, owning and closing its transport. */
+/** Run a real stdio MCP subprocess, owning and closing its transport; open `target` unless it is null. */
 export async function withArtifactMcp(target, verify) {
   const transport = new StdioClientTransport({
     command: process.execPath,
@@ -69,11 +69,14 @@ export async function withArtifactMcp(target, verify) {
   const client = new Client({ name: "artifact-real-e2e", version: "1" });
   try {
     await client.connect(transport);
-    const opened = await client.callTool({
-      name: "open_binary",
-      arguments: { path: target },
-    });
-    assert.notEqual(opened.isError, true, JSON.stringify(opened));
+    // Target-free tools pass `null` and need no open session.
+    if (target !== null) {
+      const opened = await client.callTool({
+        name: "open_binary",
+        arguments: { path: target },
+      });
+      assert.notEqual(opened.isError, true, JSON.stringify(opened));
+    }
     await verify(client);
   } finally {
     await client.close();
