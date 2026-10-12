@@ -45,10 +45,10 @@ tool invocation, no page evaluation, no navigation by REA.
 | Site | default tools | flag tools | token | code markers | classification |
 |---|---|---|---|---|---|
 | zapier.com | 5 | 5 | WebMCP, first-party `isSubdomain` (script-injected meta, `data-webmcp-origin-trial`) | registerTool (native) | **deployed-token** |
-| gillette.de → www.gillette.de/de-de | 0 | 4 | WebMCP token present but `isThirdParty: true` | registerTool present | **code-present** (served token is third-party-scoped; did not activate the API for this document) |
+| gillette.de → www.gillette.de/de-de | 0 | 4 | WebMCP token present but `isThirdParty: true` | registerTool present | **code-present** (consistent with the third-party-scoped token not enrolling the first-party document — causal attribution remains a hypothesis, see below) |
 | example.com | 0 | 0 | none | none | **negative** |
 | feverup.com → /en | 0 | 0 | none | `webmcp-polyfill`, `mcp-b`, `modelContext` | **polyfill** |
-| cnn.com → edition.cnn.com | 0 | 0 | none | none | **negative** for tools; frame-complexity observation below |
+| cnn.com → edition.cnn.com | 0 | 0 | none | none | no tools in observed frames; **excluded subframes are unobserved, not negative** — see frame scope |
 
 `status: "available"` in every run, both modes: the `WebMCP` CDP domain itself
 is **not** flag-gated in Chrome 154 — the flag/token gates page-side API
@@ -70,8 +70,9 @@ exposure, not the debug domain.
 
 - cnn.com: 8 frames; 1 main (`edition.cnn.com`) + 7 subframes at
   `about:blank`/`about:srcdoc`. REA excluded all 7 with
-  `reason: unsupported_url` (counted in `completeness.excluded`). No WebMCP
-  tools in any frame.
+  `reason: unsupported_url` (counted in `completeness.excluded`). No tools
+  were observed in the in-scope frames; **the excluded subframes are
+  unobserved — they cannot be counted as negative**.
 - zapier.com: 2 excluded subframes (`unsupported_url`).
 - feverup.com: 2 excluded subframes (`unsupported_url`).
 - gillette.de, example.com: single frame.
@@ -80,11 +81,13 @@ exposure, not the debug domain.
 
 Mudpie's vocabulary (`live` / `code-unenrolled` / `token-idle` /
 `live-polyfill` / `bridge-primed` / `none`) does not cover the gillette.de
-case: a **served token that is `isThirdParty`-scoped** and therefore does not
-activate the feature for the first-party document. Token presence is not
-token applicability; passive HTML inspection alone cannot distinguish this —
-the two-channel (default vs flag) observation can. gillette.de registers 4
-tools only under the flag. (Note: Mudpie's 2026-09-03 snapshot labeled it
+case: a **served token that is `isThirdParty`-scoped**, alongside
+registration code that activates 4 tools only under the flag. The
+explanation that this token does not enroll the first-party document is
+**consistent with the observations but remains a hypothesis** — token
+activation semantics were inferred from the token payload plus observed
+behavior, not from Chrome internals. Token presence is not token
+applicability regardless of the causal story. (Note: Mudpie's 2026-09-03 snapshot labeled it
 `code-unenrolled`; a third-party-scoped token has been added since — or was
 not detected — which is itself a time-drift observation.)
 

@@ -35,11 +35,13 @@ Statuses: `SUPPORTED` / `PARTIAL` / `REFUTED` / `UNKNOWN` / `NOT_RUN` /
 - Unknowns: per-version code diffs inside traced spans (in progress).
 - Reproduction: `grep -o '<marker>' <version>/.../workbench.desktop.main.js | wc -l`.
 
-### CUR-L1-02 — dataflow fully traced; gate defaults ON; extra fields found
+### CUR-L1-02 — dataflow fully traced; client-side default true; extra fields found
 - Claim: `workbench.contrib.externalCliAnalytics` (lifecycle Eventually)
   runs `_poll()` at construction + hourly cron; gated by
   `experimentService.checkFeatureGate("enable_ex_hs")` whose registry literal
-  is `{client:!0,default:!0}`; reads `~/.claude/history.jsonl`,
+  is `{client:!0,default:!0}` — the client-declared default is true, while
+  the effective gate remains subject to remote-override semantics not yet
+  resolved; reads `~/.claude/history.jsonl`,
   `~/.codex/history.jsonl`, AND `~/.claude/projects/<dashed-proj>/sessions-index.json`;
   emits `ex_hs2{tool:"ac"|"cx", ts, sessionId verbatim, n=text-length,
   msgCount(claude)}`; bookmarks via `externalCliAnalytics.lastTimestamp.*`.
@@ -109,17 +111,23 @@ Statuses: `SUPPORTED` / `PARTIAL` / `REFUTED` / `UNKNOWN` / `NOT_RUN` /
   (feature-sized); pbzx/member limitations don't aggregate to top-level
   coverage; Distribution/PackageInfo unsemantic-parsed without limitation.
 
-### PKG-02 — InstallerAlert signature: signed but arm64 slice tampered, notarization revoked
-- Claim: the extracted `Mac-Installer.InstallerAlert` is a valid-looking
-  signed universal Mach-O; `codesign --verify --deep --strict` FAILS on the
-  arm64 slice ("invalid Info.plist (plist or signature have been
-  modified)"); `spctl` reports notarization revoked.
-- Status: SUPPORTED (oracle, offline, non-executing).
+### PKG-02 — InstallerAlert: arm64 verification FAILURE observed; attribution unknown (R3.1 corrected)
+- Claim (bounded): for the extracted `Mac-Installer.InstallerAlert` in this
+  verification environment, `codesign --verify --deep --strict` exits 1 with
+  `invalid Info.plist (plist or signature have been modified)`, `In
+  architecture: arm64`.
+- Status: SUPPORTED (oracle output observed; **attribution to post-signing
+  tamper is RETRACTED** — the diagnostic does not establish which bytes were
+  modified, by whom, or when; bundle-context loss during sample extraction
+  is a live alternative).
 - Evidence: `pkg/correctness-report.md` §4; `pkg/oracle/InstallerAlert-oracle.txt`.
-- Secondary finding: `rea-wt-sig` reports `verification.status:"unknown"`
-  instead of invalid — `"invalid Info.plist"` missing from
+- Separate observations (not merged into one claim):
+  (a) `spctl` host-policy evaluation reports revocation — host system-policy
+  result, NOT REA offline parsing, and not proof of revocation time/reason;
+  (b) OPEN: `rea-wt-sig` maps this definitive codesign rejection to
+  `verification.status:"unknown"` — `"invalid Info.plist"` absent from
   `INVALID_SIGNATURE_REASONS` (`CodesignVerification.ts:52-66`). Reported,
-  not fixed (different worktree scope).
+  not fixed.
 - Caveat: applies to this extracted binary only; nothing inferred about the
   versus.pkg container, which remains NOT_RUN.
 
@@ -140,14 +148,18 @@ Statuses: `SUPPORTED` / `PARTIAL` / `REFUTED` / `UNKNOWN` / `NOT_RUN` /
   identity, hash-bound Evidence provenance, machine-readable unavailable
   classes.
 
-### WEB-03 — 5-site pilot validates method; classes distinguished
+### WEB-03 — 5-site pilot ran; classifications partially supported (R3.1 corrected)
 - Claim: `rea discover-webmcp-tools` (Chrome 154, dedicated profile,
   ~60 s/site, default vs `WebMCPTesting` flag) classifies sites correctly.
-- Status: SUPPORTED for pilot scope — zapier.com deployed-token (5 tools);
-  gillette.de code-present (token scoped third-party, doesn't enroll own
-  document — new sub-class); example.com negative; feverup.com polyfill
-  (CDP-invisible in both modes); cnn.com negative + 7 subframes excluded
-  `unsupported_url`.
+- Status: PARTIAL — method exercised; semantic classes not all proven.
+  zapier.com deployed-token (5 tools): SUPPORTED. example.com negative:
+  SUPPORTED (single frame, no token, no markers). feverup.com polyfill:
+  SUPPORTED (CDP-invisible both modes + static markers). gillette.de
+  code-present: SUPPORTED for "0 default / 4 flag + isThirdParty token";
+  the causal story (third-party-scoped token fails to enroll the document)
+  is a HYPOTHESIS — inferred, no Chrome-internal diagnostic. cnn.com: no
+  tools in observed frames; the 7 `unsupported_url` subframes are
+  **unobserved, not negative**.
 - Evidence: `webmcp/pilot-results.md`.
 - Unknowns: interaction-gated registrations; polyfill confirmation needs
   static/script channel; mid-load redirect (`target_not_allowed`) handling.

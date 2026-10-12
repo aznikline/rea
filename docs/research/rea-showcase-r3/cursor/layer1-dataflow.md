@@ -7,15 +7,15 @@ All offsets are byte offsets in that file. Method: marker offset location
 comparison (raw span SHA-256s differ by minifier renaming — expected).
 
 Reference runtime anchors (L2, `layer2-runtime-results.md`): canary
-`sessionId`/`ts` propagated byte-exact; `n`=entry text length; ~90 s
-post-launch firing; `env_ac`/`env_cx`/`env_gl` companion events;
-`externalCliAnalytics.lastTimestamp.*` persisted in `state.vscdb`.
+`sessionId`/`ts` propagated byte-exact; `n`=entry text length; ~24.1 s
+post-start firing (R3.1 corrected); `env_ac`/`env_cx`/`env_gl` companion
+events; `externalCliAnalytics.lastTimestamp.*` persisted in `state.vscdb`.
 
 ## The contribution (3.24.12, offsets 31178300–31181054)
 
 Class `uWn`, registered as `workbench.contrib.externalCliAnalytics`,
 lifecycle `cs.Eventually` (runs once workbench startup completes — matches
-the observed ~90 s first firing).
+the observed ~24.1 s first firing).
 
 ### Stage table
 
@@ -24,7 +24,7 @@ the observed ~90 s first firing).
 | Registration | `uWn.ID="workbench.contrib.externalCliAnalytics"`, `ts(uWn.ID,uWn,cs.Eventually)` ~31181054 | workbench contribution, DI-injected |
 | Trigger — immediate | `this._poll()` in constructor ~31178560 | fires at activation, not only hourly |
 | Trigger — repeat | `cronService.registerTask({id:"external-cli-analytics-poll", intervalMs:3600*1e3})` ~31178900 | hourly |
-| Gate | `this.experimentService.checkFeatureGate("enable_ex_hs",{disableExposureLog:!1})` ~31179119 | exposure logging **enabled**; flag registry literal `enable_ex_hs:{client:!0,default:!0}` at 15494396 → **default ON** |
+| Gate | `this.experimentService.checkFeatureGate("enable_ex_hs",{disableExposureLog:!1})` ~31179119 | exposure logging **enabled**; flag registry literal `enable_ex_hs:{client:!0,default:!0}` at 15494396 — **client-side declared default is true; effective gate is still subject to remote-override semantics not yet resolved** (whether a server flag can force it off, and the offline fallback, are UNKNOWN) |
 | Home resolution | `await this.pathService.userHome()` | VS Code pathService → OS home; consistent with the successful `HOME`-env redirect at runtime |
 | File 1 | `joinPath(home,".claude","history.jsonl")` ~31179427 | JSONL, fields `timestamp`(ms), `sessionId`, `display`, `project` |
 | File 2 | `joinPath(home,".codex","history.jsonl")` ~31180089 | JSONL, fields `ts`(sec, ×1e3), `session_id`, `text` |

@@ -1,0 +1,7 @@
+{"timestamp":1791791297.162,"category":"event","message":"ex_hs2","data":{"tool":"cx","ts":1791789463000,"sessionId":"rea-r3-canary-codex","n":42,"source_process":"renderer"}}
+{"timestamp":1791791297.191,"category":"event","message":"ex_hs2","data":{"tool":"ac","ts":1791787663000,"sessionId":"rea-r3-canary-claude","n":44,"source_process":"renderer"}}
+{"timestamp":1791791297.162,"category":"event","message":"ex_hs2","data":{"tool":"cx","ts":1791789463000,"sessionId":"rea-r3-canary-codex","n":42,"source_process":"renderer"}}
+{"timestamp":1791791297.191,"category":"event","message":"ex_hs2","data":{"tool":"ac","ts":1791787663000,"sessionId":"rea-r3-canary-claude","n":44,"source_process":"renderer"}}
+"message":"env_ac","data":{"source_process":"renderer"}
+"message":"env_cx","data":{"source_process":"renderer"}
+"message":"env_gl","data":{"source_process":"renderer"}

@@ -1,6 +1,6 @@
 # Cursor Layer-2 runtime minimal closed loop — results
 
-Run identity:
+Run identity: **R3-CUR-RUN-1**.
 
 - App: `Cursor.app` 3.24.12, commit `37b865941ccb31e2fc90c685157534efca87f964`,
   Electron 42.10.0, artifact `Cursor-3.24.12-darwin-arm64.dmg`
@@ -8,10 +8,16 @@ Run identity:
 - Environment: isolated `HOME=/tmp/rea-r3/home-1791791263`,
   `--user-data-dir` inside fake home, fresh profile, **no account/login**,
   **default settings** (no intervention; this is a default-behavior run).
-- Window: launch 15:47:53 → kill ~15:52, ~5 min total.
+- Window: process start 2026-10-12 **07:47:53.061 UTC** (15:47:53 UTC+8,
+  host TZ `Asia/Shanghai`) → kill ~15:52 local, ~5 min total.
 - Host: macOS 27.0.1 arm64. Network routed via system VPN (fake-IP NAT,
   198.18.0.0/16) — real destination IPs unrecoverable from lsof; this limits
   L3 to connection-level observation.
+
+**Timing correction (R3.1):** the `ex_hs2` breadcrumbs carry epoch
+`1791791297.162` = **07:48:17.162 UTC** = 15:48:17 UTC+8, i.e.
+**~24.1 s after process start** — not "~90 s" as an earlier draft stated.
+All references below use the corrected value.
 
 ## Synthetic canary inputs (sole contents of fake home)
 
@@ -25,8 +31,9 @@ Run identity:
    constructed events (below). Direct `lsof` file-handle snapshots during a
    short poll window did not catch the read — reads are transient; the
    propagation chain is the positive evidence.
-2. **Events constructed ~90 s after launch** (breadcrumb timestamps
-   1791791297 vs app_start 15:47:53), recorded in
+2. **Events constructed ~24.1 s after process start** (breadcrumb epoch
+   `1791791297.162` = 07:48:17.162 UTC vs `app_start_time`
+   07:47:53.061 UTC), recorded in
    `cursor-data/logs/<ts>/cursor-sentry-events.log` as telemetry-pipeline
    breadcrumbs:
 
@@ -49,17 +56,20 @@ Run identity:
    `externalCliAnalytics.lastTimestamp.claude = 1791787663000`,
    `.codex = 1791789463000` — exactly the canary timestamps, i.e. the tool
    bookmarks per-source read progress.
-5. **Privacy mode state in this fresh default profile**:
+5. **Local privacy-state keys in this fresh profile** (scoped query):
    `cursorai/donotchange/privacyMode = true`,
    `newPrivacyMode2 = {"privacyMode":"PRIVACY_MODE_NO_STORAGE"}`. The
-   externalCliAnalytics read/queue pipeline ran **under this state**.
-   (Caveat: fresh-profile `privacyMode=true` may reflect a different default
-   than an upgraded logged-in profile — treat as this-environment fact, not
-   a universal default.)
-6. Trigger cadence: first poll fired ~90 s after launch in this run —
-   i.e., a startup/near-startup execution exists; the hourly cadence claimed
-   in forum reports is a *repeat* interval, not the only trigger. L1 trace
-   will pin the exact schedule.
+   externalCliAnalytics read/queue path was observed executing while these
+   stored values were present at query time. **This is a
+   this-environment/local-state observation only** — it does not establish
+   when the keys were written relative to the reads, whether a logged-in or
+   upgraded profile carries the same values, or any account-level or
+   server-side privacy-policy outcome.
+6. Trigger cadence: first poll fired ~24.1 s after process start in this
+   run — i.e., a startup/near-startup execution exists (L1 confirms an
+   immediate `_poll()` at construction plus the hourly cron; the
+   Eventually-lifecycle activation explains the short post-start delay).
+   The hourly cadence in forum reports is the *repeat* interval.
 
 ## Observed (L3, destination-level only)
 
@@ -82,8 +92,20 @@ Run identity:
 
 ## Evidence preservation
 
-Sanitized scoped extracts only (canary strings, no real user data):
-`/tmp/rea-r3/home-1791791263/evidence/` —
-`history.jsonl`×2, `ex_hs2-breadcrumbs.txt`, `state-vscdb-scoped.txt`,
-`sentry-queue.json`. Full fake-home tree retained locally for re-inspection;
+Committed (sanitized, canary-only) under `cursor/evidence/`:
+`claude-history.jsonl`, `codex-history.jsonl` (synthetic inputs),
+`ex_hs2-breadcrumbs.txt` (canary-scoped telemetry log excerpt),
+`state-vscdb-scoped.txt` (LIKE-scoped read-only sqlite output),
+`sentry-queue.json` (empty queue snapshot), `extract.sh` (exact commands
+with run ID and corrected timing math), `hashes.txt` (SHA-256 of each).
+Full fake-home tree retained locally at `/tmp/rea-r3/home-1791791263/`;
 not committed (contains runtime-generated profile internals).
+
+## Review status (R3.1)
+
+- RUN_STATUS: executed once, bounded ~5 min window, single version.
+- OBSERVATION_STATUS: L2 positive for read→construct→queue→bookmark chain
+  in this environment; L3 content egress UNKNOWN.
+- REVIEW_STATUS: awaiting independent review — raw excerpts now committed
+  so the propagation chain (canary → event → bookmark) is checkable
+  without rerunning.

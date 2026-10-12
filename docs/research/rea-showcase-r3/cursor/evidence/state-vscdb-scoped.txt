@@ -1,0 +1,8 @@
+telemetry.firstSessionDate|Mon, 12 Oct 2026 07:47:53 GMT
+telemetry.currentSessionDate|Mon, 12 Oct 2026 07:47:53 GMT
+cursorai/donotchange/hasReconciledNewPrivacyModeWithServerOnUpgrade|true
+externalCliAnalytics.lastTimestamp.codex|1791789463000
+externalCliAnalytics.lastTimestamp.claude|1791787663000
+cursorai/donotchange/newPrivacyModeHoursRemainingInGracePeriod|0
+cursorai/donotchange/privacyMode|true
+cursorai/donotchange/newPrivacyMode2|{"privacyMode":"PRIVACY_MODE_NO_STORAGE"}
