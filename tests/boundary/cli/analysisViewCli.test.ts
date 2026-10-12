@@ -1,10 +1,11 @@
 import { apiSurfaceHar } from "../../fixtures/historicalHar.js";
 import { parseEvidence } from "../../../src/domain/evidence.js";
 import { createHash } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { expect } from "vitest";
+import { TextReader, Uint8ArrayWriter, ZipWriter } from "@zip.js/zip.js";
 
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { cliTest } from "../../support/cli/cliFixture.js";
@@ -88,6 +89,51 @@ cliTest(
       unknowns: [
         "Some retained records have unavailable status or content type values.",
       ],
+    });
+  },
+);
+
+cliTest(
+  "projects portable artifact inventory after the original ZIP is removed",
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-inventory-view-cli-");
+    const archive = join(root, "fixture.zip");
+    const writer = new ZipWriter(new Uint8ArrayWriter());
+    await writer.add("main.js", new TextReader("console.log('portable');\n"));
+    await writeFile(archive, await writer.close());
+    const inspected = await cli.run({
+      arguments: ["inspect-artifact", archive, "--json"],
+    });
+    expect(inspected.exitCode).toBe(0);
+    const parent = parseEvidence(inspected.json);
+    await unlink(archive);
+    const request = join(root, "view.json");
+    await writeFile(
+      request,
+      JSON.stringify({
+        source: { kind: "inline", evidence: parent },
+        view: {
+          kind: "inventory",
+          collection: "occurrences",
+          logical_paths: ["main.js"],
+        },
+      }),
+    );
+    const projected = await cli.run({
+      arguments: ["inspect-analysis-view", request, "--json"],
+    });
+    expect(projected.exitCode).toBe(0);
+    expect(projected.json).toMatchObject({
+      operation: "inspect_analysis_view",
+      evidence_links: [parent.evidence_id],
+      normalized_result: {
+        parent_evidence_id: parent.evidence_id,
+        kind: "inventory",
+        source_complete: true,
+        artifact: { path: archive, sha256: parent.subject?.digest.sha256 },
+        items: [expect.objectContaining({ logical_path: "main.js" })],
+        coverage: { total: 1, exhausted: true, next_offset: null },
+      },
     });
   },
 );
