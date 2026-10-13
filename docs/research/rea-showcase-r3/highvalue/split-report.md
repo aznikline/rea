@@ -151,12 +151,13 @@ tooling). `split/intrinsic-boundaries` is self-contained on current main;
 
 ## Remaining gates / caveats
 
-- `split/intrinsic-boundaries`: fast checks and focused/source tests pass;
-  `check:pr` (full local gate) and real-provider verification were not run.
-  The resolver change (unresolvable intrinsic invocation-member callee →
-  `opaque`) is a deliberate semantic decision made during conflict resolution —
-  reviewers should confirm it matches upstream's intended strictness, since
-  upstream currently treats that shape as effect-free.
+- `split/intrinsic-boundaries`: gates completed — see
+  `ib-semantic-contrast.md` for the 13-case base/head contrast table and
+  `check:pr`/production-entry results. Opened as **Draft PR
+  https://github.com/morluto/rea/pull/2465** at head `8d5e11efc` (semantic
+  decision disclosed in the PR body). `check:pr` had 7 host-environment
+  real-toolchain failures reproduced identically on unmodified main —
+  a provisioned CI lane remains the open gate.
 - `split/compatibility-first`: do not open a PR; the topic is fully upstream
   (PR #2122 and follow-ups). The fork branch exists only to record the
   verified-empty delta.
