@@ -252,6 +252,64 @@ fix("F17-cleanup-incomplete",
                         bm_lines()),
     "PASS", "VALID", "OBSERVED", "NO")
 
+# 18. Real R0: history_mode=none with genuinely EMPTY input files — a
+#     valid "no records" state, not corrupt input.
+def f18(r):
+    m = manifest(history="none")
+    m["synthetic_inputs"]["claude"]["sessionId"] = ""
+    m["synthetic_inputs"]["codex"]["session_id"] = ""
+    root = write_pkg(r, m, [], ["externalCliAnalytics.lastTimestamp.claude|0"],
+                     input_override={"claude": None, "codex": None})
+    for f in ("inputs/claude-history.jsonl", "inputs/codex-history.jsonl"):
+        with open(os.path.join(root, f), "w") as fh:
+            fh.write("")
+    # inputs changed after hashing — re-hash whole package
+    entries = []
+    for dp, _, fns in os.walk(root):
+        for fn in fns:
+            if fn != "hashes.txt":
+                p = os.path.join(dp, fn)
+                entries.append((hashlib.sha256(open(p, "rb").read()).hexdigest(),
+                                os.path.relpath(p, root)))
+    with open(os.path.join(root, "hashes.txt"), "w") as fh:
+        fh.writelines(f"{h}  {rel}\n" for h, rel in sorted(entries))
+    return root
+fix("F18-r0-empty-history-inputs", f18, "PASS", "VALID",
+    "NOT_OBSERVED_WITHIN_WINDOW", "YES")
+
+# 19. Inputs exist but are NOT listed in hashes.txt — coverage gap must
+#     fail integrity (existence is not coverage).
+fix("F19-inputs-not-hash-covered",
+    lambda r: write_pkg(r, manifest(),
+        [bline(claude_event()), bline(codex_event())], bm_lines(),
+        hash_only=("run-manifest.json", "breadcrumbs-raw.txt",
+                   "breadcrumbs-deduped.txt", "state-vscdb-scoped.txt",
+                   "extract-report.json")),
+    "FAIL", "VALID", "NOT_ASSESSED", "NO")
+
+# 20. Cancelled run that was once ready and cleaned up → limited run,
+#     positive retained, never eligible.
+fix("F20-cancelled-positive",
+    lambda r: write_pkg(r, {**manifest(), "process":
+                            {**manifest()["process"], "cancelled": True}},
+        [bline(claude_event()), bline(codex_event())], bm_lines()),
+    "PASS", "VALID", "OBSERVED", "NO")
+
+# 21. Positive records but launch epoch missing → window unverifiable:
+#     partial observation retained, comparison refused, no crash.
+def f21(r):
+    m = manifest()
+    m["phases"]["launch_epoch_s"] = None
+    return write_pkg(r, m, [bline(claude_event()), bline(codex_event())], bm_lines())
+fix("F21-missing-launch-epoch", f21, "PASS", "VALID", "OBSERVED_PARTIAL", "NO")
+
+# 22. ready_epoch missing while readiness claims reached → ineligible.
+def f22(r):
+    m = manifest()
+    m["phases"]["ready_epoch_s"] = None
+    return write_pkg(r, m, [bline(claude_event()), bline(codex_event())], bm_lines())
+fix("F22-missing-ready-epoch", f22, "PASS", "VALID", "OBSERVED", "NO")
+
 # ---------- E2E: raw log -> extract-evidence -> package -> verify ----------
 
 def build_run_dir(root, log_lines, m=None, with_inputs=True):

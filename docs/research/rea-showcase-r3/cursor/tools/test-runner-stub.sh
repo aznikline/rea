@@ -158,5 +158,43 @@ echo "$V" | grep -q "OBSERVATION        = OBSERVED" && \
 echo "$V" | grep -q "ELIGIBLE_FOR_COMPARISON = YES" \
   && ok "T7-stub-e2e-observed" || bad "T7" "$V"
 
+# --- T8: pipeline R0 — history=none, EMPTY inputs, valid negative ------
+run_exp --label stub --history none --duration 25 --ready-timeout 45 \
+  --extra-arg --stub-mode=delayed-ready >/dev/null 2>&1
+RD=$(ls -td "$RR"/stub-*/ | head -1)
+bash "$HERE/extract-evidence.sh" --run "$RD" --out "$SCRATCH/pkg-t8" >/dev/null 2>&1
+V=$(bash "$HERE/verify-evidence.sh" --evidence "$SCRATCH/pkg-t8" 2>&1)
+echo "$V" | grep -q "EVIDENCE_INTEGRITY = PASS" && \
+echo "$V" | grep -q "OBSERVATION        = NOT_OBSERVED_WITHIN_WINDOW" && \
+echo "$V" | grep -q "ELIGIBLE_FOR_COMPARISON = YES" \
+  && ok "T8-r0-empty-history-negative" || bad "T8" "$V"
+
+# --- T9: pipeline R2 — independent repeat of the positive --------------
+run_exp --label stub --history canary --duration 25 --ready-timeout 45 \
+  --extra-arg --stub-mode=events >/dev/null 2>&1
+RD=$(ls -td "$RR"/stub-*/ | head -1)
+bash "$HERE/extract-evidence.sh" --run "$RD" --out "$SCRATCH/pkg-t9" >/dev/null 2>&1
+V=$(bash "$HERE/verify-evidence.sh" --evidence "$SCRATCH/pkg-t9" 2>&1)
+echo "$V" | grep -q "OBSERVATION        = OBSERVED" && \
+echo "$V" | grep -q "ELIGIBLE_FOR_COMPARISON = YES" \
+  && ok "T9-r2-repeat-observed" || bad "T9" "$V"
+
+# --- T10: cancelled run — terminal manifest kept, never eligible -------
+bash "$HERE/run-experiment.sh" --runs-root "$RR" \
+  --cursor-app "$BIN" --expect-sha256 "$BIN_SHA" \
+  --expect-workbench-sha256 "$WB_SHA" \
+  --label stub --history canary --duration 120 --ready-timeout 45 \
+  --extra-arg --stub-mode=events >/dev/null 2>&1 &
+RUNNER=$!
+sleep 20
+kill -TERM "$RUNNER" 2>/dev/null || true
+wait "$RUNNER" 2>/dev/null
+RD=$(ls -td "$RR"/stub-*/ | head -1)
+bash "$HERE/extract-evidence.sh" --run "$RD" --out "$SCRATCH/pkg-t10" >/dev/null 2>&1
+V=$(bash "$HERE/verify-evidence.sh" --evidence "$SCRATCH/pkg-t10" 2>&1)
+echo "$V" | grep -q "ELIGIBLE_FOR_COMPARISON = NO" && \
+echo "$V" | grep -q "cancelled" \
+  && ok "T10-cancelled-ineligible" || bad "T10" "$V"
+
 echo; echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

@@ -309,3 +309,39 @@ Statuses: `SUPPORTED` / `PARTIAL` / `REFUTED` / `UNKNOWN` / `NOT_RUN` /
   `974f11d01` (R3 baseline), `d96550f2f` (R3.1 PR base), `ad08510a1`
   (R3.1 review-time), `4773c152b` (R3.3 reviewer read), `ca2d15b3e`
   (R3.3 agent re-fetch, current).
+
+### OPS-05 — R3.4 pipeline interface fixes (2026-10-13)
+- Lead's focused review (REA_R34_focused_review.zip, NOT accessible in
+  this environment — fixes implemented independently per its precise
+  defect descriptions; do not record as "Lead patch merged"):
+  * R0 `history=none` zero-byte JSONL inputs = "no records" semantics,
+    not corrupt — verifier now honors mode (empty OK in none, FAIL in
+    canary).
+  * `covered.add(rel)` no longer conflates "required to exist" with
+    "hash-covered" — unlisted inputs fail integrity.
+  * `cancelled` runs are terminal-recorded but never eligible.
+  * Missing launch/obs_end → window unverifiable = soft mismatch →
+    OBSERVED_PARTIAL + ineligible (no more TypeError crash).
+  * ready_epoch_s required when readiness is claimed — missing →
+    ineligible.
+- Pipeline regression T8–T10: real runner→extract→verify chain covers
+  R0 empty-history negative, R1 positive, R2 repeat, cancelled.
+  Suite: 27/27 fixtures + 10/10 stub runs.
+- PR #2465 (split/intrinsic-boundaries @ 8d5e11efc): Open/Draft,
+  opened 2026-10-13T11:28:32+08:00, no checks reported (same
+  maintainer-approval block as #2262/#2263). Prior "network-blocked"
+  state is historical only.
+- check:pr framing corrected: "candidate-relevant gates pass; full
+  suite has base-reproduced failures", not "all gates pass".
+
+### OPS-06 — VM image resolved; precheck OK
+- tart pull COMPLETED; no active pull process remains. The earlier
+  "still retrying" status was stale — progress-by-cache-size was the
+  wrong metric (cache 28G + vms 28G = the resolved image plus the VM
+  clone, not download progress).
+- Pinned digest: ghcr.io/cirruslabs/macos-sequoia-vanilla
+  @sha256:57a83b1b52f928f5b11b0963927178fd6c4cac52c315279f227c27cc5ab81587
+- rea-l3-vm exists (30G sparse on-disk), boots headless, SSH admin@
+  192.168.64.2 alive, macOS 15.7.7 arm64 — environment precheck PASS.
+  Cleanly shut down after precheck to free host resources.
+- Host disk 92% used (36Gi free) — flag before guest installs.

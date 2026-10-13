@@ -97,7 +97,7 @@ if m:
         rel = canon.get(side, {}).get("packaged_file") or f"inputs/{side}-history.jsonl"
         icheck(f"{side} packaged input exists",
                os.path.exists(os.path.join(ev, rel)), rel)
-        covered.add(rel)  # required set member
+        # existence is NOT hash coverage — do not add to `covered`
 
 # complete package: EVERY file on disk (except hashes.txt itself) must be
 # listed in hashes.txt — a manifest that only covers some files does not
@@ -119,8 +119,18 @@ if m:
         rel = canon.get(side, {}).get("packaged_file") or f"inputs/{side}-history.jsonl"
         p = os.path.join(ev, rel)
         if os.path.exists(p):
+            raw = open(p).read().strip()
+            if not raw:
+                # "no records" is a real input state (history_mode=none
+                # writes zero-byte history files). It is legitimate for
+                # none mode, corrupt for canary mode.
+                icheck(f"{side} packaged input parses",
+                       m.get("history_mode") == "none",
+                       "empty input file" + ("" if m.get("history_mode") == "none"
+                                             else " in canary mode"))
+                continue
             try:
-                inp = json.loads(open(p).read())
+                inp = json.loads(raw)
                 if side == "claude":
                     icheck("claude input sessionId matches manifest",
                            inp.get(key) == canon[side].get("sessionId"),
@@ -182,9 +192,11 @@ if m:
     vcheck("cleanup complete",
            proc.get("post_termination_remaining_processes") in (0, "0"),
            str(proc.get("post_termination_remaining_processes")))
+    req_phases = ["probe_epoch_s", "launch_epoch_s", "obs_end_epoch_s"]
+    if readiness.get("workbench_window_logdir_and_renderer_log_and_state_db") is True:
+        req_phases.append("ready_epoch_s")
     vcheck("phase epochs recorded",
-           all(phases.get(k) is not None for k in
-               ("probe_epoch_s", "launch_epoch_s", "obs_end_epoch_s")))
+           all(phases.get(k) is not None for k in req_phases))
     tgt = m.get("target", {})
     vcheck("target identity computed", bool(tgt.get("computed_sha256")),
            tgt.get("identity", "?"))
@@ -203,8 +215,12 @@ ineligible = []
 if m:
     if proc.get("early_exit") is True:
         ineligible.append("early_exit")
+    if proc.get("cancelled") is True:
+        ineligible.append("cancelled")
     if readiness.get("workbench_window_logdir_and_renderer_log_and_state_db") is not True:
         ineligible.append("workbench_readiness_not_reached")
+    elif phases.get("ready_epoch_s") is None:
+        ineligible.append("ready_epoch_missing")
     if proc.get("post_termination_remaining_processes") not in (0, "0"):
         ineligible.append("cleanup_incomplete")
     if tgt.get("identity") not in ("match",):
@@ -249,9 +265,14 @@ if not integrity_fails and validity != "INVALID" and m:
         phases = m.get("phases", {})
         launch = phases.get("launch_epoch_s")
         obs_end = phases.get("obs_end_epoch_s")
-        in_window = launch is None or obs_end is None or \
-            (lambda e: launch - 5 <= e.get("timestamp", 0) <= obs_end + 5)
-        mismatched = []
+        def in_window(e):
+            # missing window endpoints: unverifiable, not a pass and not
+            # a crash — a soft mismatch keeping the run out of OBSERVED.
+            if launch is None or obs_end is None:
+                return None
+            return launch - 5 <= e.get("timestamp", 0) <= obs_end + 5
+        mismatched = []      # hard: fields or window bound and wrong
+        soft_mismatch = []   # window unverifiable — cannot attribute to run
 
         def match_side(sid, tool, ts_ok, text, inp_rel):
             cands = [e for e in evs if e.get("data", {}).get("sessionId") == sid]
@@ -271,7 +292,12 @@ if not integrity_fails and validity != "INVALID" and m:
                         reasons.append(f"n={e.get('data', {}).get('n')!r} want {want_n}")
                 else:
                     reasons.append("packaged input missing — n unverifiable")
-                if not in_window(e):
+                w = in_window(e)
+                if w is None:
+                    soft_mismatch.append({"sessionId": sid,
+                                          "reasons": ["run window unverifiable"]})
+                    continue
+                if not w:
                     reasons.append("record timestamp outside run window")
                 if reasons:
                     mismatched.append({"sessionId": sid, "reasons": reasons})
@@ -297,6 +323,8 @@ if not integrity_fails and validity != "INVALID" and m:
         ocheck("codex canary event observed (ex_hs2/cx/fields bound)", len(cx_ev) >= 1,
                f"{len(cx_c)} sessionId candidates, {len(cx_ev)} fully bound")
         ocheck("no field-mismatched candidates", not mismatched, str(mismatched))
+        if soft_mismatch:
+            print(f"INFO window-unverifiable candidates: {soft_mismatch}")
 
         # bookmarks: exact key + parsed value, never substring search
         bm = {}
@@ -318,6 +346,11 @@ if not integrity_fails and validity != "INVALID" and m:
         elif cl_ev or cx_ev:
             # at least one side fully bound; leftover failures mean partial
             observed = "OBSERVED" if not obs_fails else "OBSERVED_PARTIAL"
+        elif cl_c or cx_c:
+            # candidates exist but none could be fully bound to this run
+            # (e.g. window endpoints missing) — partial observation, never
+            # folded into "not observed".
+            observed = "OBSERVED_PARTIAL"
         else:
             observed = "NOT_OBSERVED_WITHIN_WINDOW"
     else:
