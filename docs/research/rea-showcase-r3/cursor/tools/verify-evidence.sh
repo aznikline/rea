@@ -60,7 +60,9 @@ else:
     icheck("run-manifest parses", False, "absent")
 
 # hash manifest: EVERY entry must recompute; file absent is a failure,
-# not a skip.
+# not a skip. Coverage is checked BOTH directions: every required file
+# must be listed, and every listed path must stay inside the package.
+covered = set()
 hpath = os.path.join(ev, "hashes.txt")
 if os.path.exists(hpath):
     n_entries = 0
@@ -70,13 +72,21 @@ if os.path.exists(hpath):
             icheck("hashes.txt line parses", False, line.strip()[:60]); continue
         want, p = parts[0], parts[1].strip()
         n_entries += 1
-        path = p if os.path.isabs(p) else os.path.join(ev, p)
+        # path must be package-relative and non-escaping
+        esc = os.path.isabs(p) or ".." in p.split("/")
+        if esc:
+            icheck(f"hash path in-package {p}", False, "absolute or escaping path")
+            continue
+        covered.add(p)
+        path = os.path.join(ev, p)
         if os.path.exists(path):
             got = hashlib.sha256(open(path, "rb").read()).hexdigest()
             icheck(f"hash {p}", got == want, got[:12])
         else:
             icheck(f"hash {p}", False, "referenced file missing")
     icheck("hashes.txt non-empty", n_entries > 0, f"{n_entries} entries")
+else:
+    covered = set()
 
 # packaged inputs must exist inside the package — resolved via manifest
 # `packaged_file`, with the extractor's conventional path as fallback
@@ -87,6 +97,46 @@ if m:
         rel = canon.get(side, {}).get("packaged_file") or f"inputs/{side}-history.jsonl"
         icheck(f"{side} packaged input exists",
                os.path.exists(os.path.join(ev, rel)), rel)
+        covered.add(rel)  # required set member
+
+# complete package: EVERY file on disk (except hashes.txt itself) must be
+# listed in hashes.txt — a manifest that only covers some files does not
+# certify the package.
+if os.path.exists(hpath):
+    on_disk = set()
+    for dp, _, fns in os.walk(ev):
+        for fn in fns:
+            if fn != "hashes.txt":
+                on_disk.add(os.path.relpath(os.path.join(dp, fn), ev))
+    uncovered = sorted(on_disk - covered)
+    icheck("all package files are hash-covered", not uncovered, str(uncovered))
+
+# manifest must agree with the ACTUAL packaged inputs (not just its claims)
+if m:
+    canon = m.get("synthetic_inputs", {})
+    for side, key, tskey in (("claude", "sessionId", "timestamp"),
+                             ("codex", "session_id", "ts")):
+        rel = canon.get(side, {}).get("packaged_file") or f"inputs/{side}-history.jsonl"
+        p = os.path.join(ev, rel)
+        if os.path.exists(p):
+            try:
+                inp = json.loads(open(p).read())
+                if side == "claude":
+                    icheck("claude input sessionId matches manifest",
+                           inp.get(key) == canon[side].get("sessionId"),
+                           f"{inp.get(key)} vs {canon[side].get('sessionId')}")
+                    icheck("claude input timestamp matches manifest",
+                           inp.get(tskey) == canon[side].get("timestamp_ms"),
+                           f"{inp.get(tskey)} vs {canon[side].get('timestamp_ms')}")
+                else:
+                    icheck("codex input session_id matches manifest",
+                           inp.get(key) == canon[side].get("session_id"),
+                           f"{inp.get(key)} vs {canon[side].get('session_id')}")
+                    icheck("codex input ts matches manifest",
+                           inp.get(tskey) == canon[side].get("ts_seconds"),
+                           f"{inp.get(tskey)} vs {canon[side].get('ts_seconds')}")
+            except (ValueError, KeyError) as e:
+                icheck(f"{side} packaged input parses", False, str(e)[:60])
 
 # extract-report parse health
 report = {}
@@ -96,6 +146,11 @@ if os.path.exists(rpath):
         report = json.load(open(rpath))
         icheck("no extractor file errors", not report.get("files_with_errors"),
                str(report.get("files_with_errors"))[:80])
+        # records carrying event markers that failed to parse must fail
+        # integrity — they cannot be silently counted as zero events.
+        icheck("no unparsed event-marker candidates",
+               not report.get("unparsed_candidates"),
+               str(report.get("unparsed_candidates"))[:120])
     except ValueError as e:
         icheck("extract-report parses", False, str(e))
 
@@ -143,6 +198,24 @@ if m:
     ])
     validity = "INVALID" if hard_invalid else ("VALID" if qualified else "QUALIFIED")
 
+# eligibility for formal matrix comparison — warnings DO gate eligibility
+ineligible = []
+if m:
+    if proc.get("early_exit") is True:
+        ineligible.append("early_exit")
+    if readiness.get("workbench_window_logdir_and_renderer_log_and_state_db") is not True:
+        ineligible.append("workbench_readiness_not_reached")
+    if proc.get("post_termination_remaining_processes") not in (0, "0"):
+        ineligible.append("cleanup_incomplete")
+    if tgt.get("identity") not in ("match",):
+        ineligible.append(f"target_identity_{tgt.get('identity', 'unknown')}")
+    wb = tgt.get("workbench_js") or {}
+    if wb.get("identity") not in ("match",):
+        ineligible.append(f"workbench_js_identity_{wb.get('identity', 'unknown')}")
+    if not all(phases.get(k) is not None for k in
+               ("probe_epoch_s", "launch_epoch_s", "obs_end_epoch_s")):
+        ineligible.append("phase_epochs_missing")
+
 # ---------- 3. OBSERVATION ----------
 observed = "NOT_ASSESSED"
 if not integrity_fails and validity != "INVALID" and m:
@@ -168,40 +241,62 @@ if not integrity_fails and validity != "INVALID" and m:
         return len(s.encode("utf-16-le")) // 2
 
     if m.get("history_mode") == "canary":
-        cl_ev = [e for e in evs if e.get("data", {}).get("sessionId") == cl["sessionId"]]
-        cx_ev = [e for e in evs if e.get("data", {}).get("sessionId") == cx["session_id"]]
+        # Observation binds: event name == "ex_hs2" AND the expected `tool`
+        # AND the planted sessionId AND fields matching the packaged input
+        # AND the record lands inside this run's time window.
+        # An event with our sessionId but wrong name/tool/fields is NOT
+        # "not observed" — it is FIELD_MISMATCH.
+        phases = m.get("phases", {})
+        launch = phases.get("launch_epoch_s")
+        obs_end = phases.get("obs_end_epoch_s")
+        in_window = launch is None or obs_end is None or \
+            (lambda e: launch - 5 <= e.get("timestamp", 0) <= obs_end + 5)
+        mismatched = []
 
-        ocheck("claude canary sessionId observed", len(cl_ev) >= 1)
-        if cl_ev:
-            d = cl_ev[0].get("data", {})
-            ocheck("claude ts matches input ms exactly",
-                   d.get("ts") == cl["timestamp_ms"],
-                   f"{d.get('ts')} vs {cl['timestamp_ms']}")
-            inp = os.path.join(ev, cl.get("packaged_file") or "inputs/claude-history.jsonl")
-            if os.path.exists(inp):
-                text = json.loads(open(inp).read())["display"]
-                ocheck("claude n == UTF-16 code-unit length",
-                       d.get("n") == utf16_len(text),
-                       f"{d.get('n')} vs {utf16_len(text)}")
-            else:
-                ocheck("claude n check", False, "packaged input missing — no downgrade")
+        def match_side(sid, tool, ts_ok, text, inp_rel):
+            cands = [e for e in evs if e.get("data", {}).get("sessionId") == sid]
+            good = []
+            for e in cands:
+                reasons = []
+                if e.get("message") != "ex_hs2":
+                    reasons.append(f"message={e.get('message')!r}")
+                if e.get("data", {}).get("tool") != tool:
+                    reasons.append(f"tool={e.get('data', {}).get('tool')!r}")
+                if not ts_ok(e.get("data", {}).get("ts")):
+                    reasons.append(f"ts={e.get('data', {}).get('ts')!r}")
+                inp = os.path.join(ev, inp_rel)
+                if os.path.exists(inp):
+                    want_n = utf16_len(text)
+                    if e.get("data", {}).get("n") != want_n:
+                        reasons.append(f"n={e.get('data', {}).get('n')!r} want {want_n}")
+                else:
+                    reasons.append("packaged input missing — n unverifiable")
+                if not in_window(e):
+                    reasons.append("record timestamp outside run window")
+                if reasons:
+                    mismatched.append({"sessionId": sid, "reasons": reasons})
+                else:
+                    good.append(e)
+            return cands, good
 
-        ocheck("codex canary sessionId observed", len(cx_ev) >= 1)
-        if cx_ev:
-            d = cx_ev[0].get("data", {})
-            # Event ts is milliseconds; input ts is SECONDS → compare to ms.
-            expected_ms = cx["ts_seconds"] * 1000
-            ocheck("codex ts == input seconds * 1000",
-                   d.get("ts") == expected_ms,
-                   f"{d.get('ts')} vs {expected_ms}")
-            inp = os.path.join(ev, cx.get("packaged_file") or "inputs/codex-history.jsonl")
-            if os.path.exists(inp):
-                text = json.loads(open(inp).read())["text"]
-                ocheck("codex n == UTF-16 code-unit length",
-                       d.get("n") == utf16_len(text),
-                       f"{d.get('n')} vs {utf16_len(text)}")
-            else:
-                ocheck("codex n check", False, "packaged input missing — no downgrade")
+        cl_text = cx_text = None
+        cl_inp_rel = cl.get("packaged_file") or "inputs/claude-history.jsonl"
+        cx_inp_rel = cx.get("packaged_file") or "inputs/codex-history.jsonl"
+        if os.path.exists(os.path.join(ev, cl_inp_rel)):
+            cl_text = json.loads(open(os.path.join(ev, cl_inp_rel)).read())["display"]
+        if os.path.exists(os.path.join(ev, cx_inp_rel)):
+            cx_text = json.loads(open(os.path.join(ev, cx_inp_rel)).read())["text"]
+
+        cl_c, cl_ev = match_side(cl["sessionId"], "ac",
+            lambda ts: ts == cl["timestamp_ms"], cl_text or "", cl_inp_rel)
+        cx_c, cx_ev = match_side(cx["session_id"], "cx",
+            lambda ts: ts == cx["ts_seconds"] * 1000, cx_text or "", cx_inp_rel)
+
+        ocheck("claude canary event observed (ex_hs2/ac/fields bound)", len(cl_ev) >= 1,
+               f"{len(cl_c)} sessionId candidates, {len(cl_ev)} fully bound")
+        ocheck("codex canary event observed (ex_hs2/cx/fields bound)", len(cx_ev) >= 1,
+               f"{len(cx_c)} sessionId candidates, {len(cx_ev)} fully bound")
+        ocheck("no field-mismatched candidates", not mismatched, str(mismatched))
 
         # bookmarks: exact key + parsed value, never substring search
         bm = {}
@@ -218,7 +313,13 @@ if not integrity_fails and validity != "INVALID" and m:
                bm.get("externalCliAnalytics.lastTimestamp.codex") == str(cx["ts_seconds"] * 1000),
                bm.get("externalCliAnalytics.lastTimestamp.codex", "absent"))
 
-        observed = "OBSERVED" if not obs_fails else "NOT_OBSERVED_WITHIN_WINDOW"
+        if mismatched:
+            observed = "FIELD_MISMATCH"
+        elif cl_ev or cx_ev:
+            # at least one side fully bound; leftover failures mean partial
+            observed = "OBSERVED" if not obs_fails else "OBSERVED_PARTIAL"
+        else:
+            observed = "NOT_OBSERVED_WITHIN_WINDOW"
     else:
         ocheck("no ex_hs2 in none-history run",
                len([e for e in evs if str(e.get("message", "")).startswith("ex_hs")]) == 0)
@@ -239,5 +340,8 @@ print()
 print(f"EVIDENCE_INTEGRITY = {'PASS' if not integrity_fails else 'FAIL ' + str(integrity_fails)}")
 print(f"RUN_VALIDITY       = {validity}")
 print(f"OBSERVATION        = {observed}")
+print(f"ELIGIBLE_FOR_COMPARISON = {'YES' if not integrity_fails and validity == 'VALID' and not ineligible else 'NO'}")
+if ineligible:
+    print(f"INELIGIBILITY_REASONS = {ineligible}")
 sys.exit(0 if not integrity_fails and validity != "INVALID" else 1)
 PYEOF

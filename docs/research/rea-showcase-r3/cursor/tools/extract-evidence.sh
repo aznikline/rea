@@ -56,43 +56,72 @@ fi
 # Raw view: every matching record, duplicates preserved. Also emits a
 # parse report so malformed log content cannot masquerade as zero events.
 python3 - "$D" "$OUT_DIR" <<'PYEOF'
-import glob, json, os, sys
+import glob, hashlib, json, os, sys
 
 d, out = sys.argv[1], sys.argv[2]
 report = {"files_scanned": 0, "bytes_scanned": 0, "records_matched": 0,
-          "files_with_errors": [], "missing_dir": False}
+          "files_with_errors": [], "missing_dir": False,
+          "unparsed_candidates": [],
+          "format_contract": ("one JSON record per line in cursor-sentry-events.log; "
+                              "records are found as balanced {...} spans with "
+                              "string/escape awareness; an event record may be "
+                              "nested inside a wrapper object"),
+          }
 raw_path = os.path.join(out, "breadcrumbs-raw.txt")
 
-logs = sorted(glob.glob(os.path.join(d, "logs", "*", "cursor-sentry-events.log")))
+logs = sorted(glob.glob(os.path.join(d, "logs", "**", "cursor-sentry-events.log"),
+                        recursive=True))
 if not logs:
     report["missing_dir"] = True
 
-def extract_json_objects(data: bytes):
-    """Yield (offset, text) of top-level balanced {...} candidates on each line."""
-    start = 0
-    while True:
-        nl = data.find(b"\n", start)
-        if nl == -1:
-            line, start = data[start:], len(data)
-        else:
-            line, start = data[start:nl], nl + 1
-        i = 0
-        while i < len(line):
-            if line[i:i+1] == b"{":
-                depth, j = 0, i
-                while j < len(line):
-                    if line[j:j+1] == b"{": depth += 1
-                    elif line[j:j+1] == b"}":
-                        depth -= 1
-                        if depth == 0: break
-                    j += 1
-                if depth == 0:
-                    yield line[i:j+1]
-                    i = j + 1
-                    continue
+def top_level_objects(line: bytes):
+    """Yield (offset, text) of balanced top-level {...} spans in a line,
+    honoring JSON strings and backslash escapes."""
+    i, n = 0, len(line)
+    while i < n:
+        if line[i:i+1] != b"{":
             i += 1
-        if nl == -1: break
+            continue
+        depth, j, in_str, esc = 0, i, False, False
+        while j < n:
+            ch = line[j:j+1]
+            if in_str:
+                if esc: esc = False
+                elif ch == b"\\": esc = True
+                elif ch == b'"': in_str = False
+            else:
+                if ch == b'"': in_str = True
+                elif ch == b"{": depth += 1
+                elif ch == b"}":
+                    depth -= 1
+                    if depth == 0:
+                        yield (i, line[i:j+1])
+                        i = j + 1
+                        break
+            j += 1
+        else:
+            # Unterminated {...} span: no balanced object on the rest of line.
+            i = n
+            continue
+        if depth != 0:
+            i += 1  # unbalanced span, move on
 
+def find_events(node, found):
+    """Recursively collect dicts that look like event records (allows a
+    wrapper object around the breadcrumb)."""
+    if isinstance(node, dict):
+        msg = node.get("message")
+        if node.get("category") == "event" and isinstance(msg, str) and \
+           (msg.startswith("ex_hs") or msg.startswith("env_")):
+            found.append(node)
+        for v in node.values():
+            if isinstance(v, (dict, list)):
+                find_events(v, found)
+    elif isinstance(node, list):
+        for v in node:
+            find_events(v, found)
+
+MARKERS = (b'"ex_hs', b'"env_', b'"category"')
 matches = []
 for path in logs:
     report["files_scanned"] += 1
@@ -102,23 +131,39 @@ for path in logs:
         report["files_with_errors"].append(f"{path}: {e}")
         continue
     report["bytes_scanned"] += len(data)
-    base = 0
-    for obj in extract_json_objects(data):
-        try:
-            rec = json.loads(obj)
-        except (ValueError, UnicodeDecodeError):
-            continue
-        if not isinstance(rec, dict):
-            continue
-        if rec.get("category") != "event":
-            continue
-        msg = rec.get("message", "")
-        if not (msg.startswith("ex_hs") or msg.startswith("env_")):
-            continue
-        off = data.find(obj, base)
-        line_no = data.count(b"\n", 0, off) + 1 if off >= 0 else 0
-        matches.append((path, line_no, off, obj))
-        base = off + 1
+    pos = 0
+    while True:
+        nl = data.find(b"\n", pos)
+        end = len(data) if nl == -1 else nl
+        line = data[pos:end]
+        line_no = data.count(b"\n", 0, pos) + 1
+        objs = list(top_level_objects(line))
+        parsed_any = False
+        for off, obj in objs:
+            try:
+                rec = json.loads(obj)
+            except (ValueError, UnicodeDecodeError):
+                if any(mk in obj for mk in MARKERS):
+                    report["unparsed_candidates"].append(
+                        {"file": path, "line": line_no, "offset": off,
+                         "sha256_128B": hashlib.sha256(obj[:128]).hexdigest()[:16],
+                         "reason": "balanced object failed JSON parse"})
+                continue
+            parsed_any = True
+            evs_found = []
+            find_events(rec, evs_found)
+            for ev_rec in evs_found:
+                matches.append((path, line_no, off, json.dumps(
+                    ev_rec, separators=(",", ":"), ensure_ascii=False).encode()))
+        # Line carries a marker but no parseable event object → record it.
+        if not parsed_any and any(mk in line for mk in MARKERS):
+            report["unparsed_candidates"].append(
+                {"file": path, "line": line_no, "offset": pos,
+                 "sha256_128B": hashlib.sha256(line[:128]).hexdigest()[:16],
+                 "reason": "line contains event marker but no parseable object"})
+        if nl == -1:
+            break
+        pos = nl + 1
 report["records_matched"] = len(matches)
 
 with open(raw_path, "w") as o:
