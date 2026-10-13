@@ -1,0 +1,74 @@
+{
+  "run_id": "r2-1791879851-1416",
+  "history_mode": "canary",
+  "target": {
+    "path": "/Users/admin/l3/Cursor.app/Contents/MacOS/Cursor",
+    "computed_sha256": "71e8dfc19ff2216a277315972dcca0ea83773e8ec214f3cf352ee9591ce38037",
+    "expected_sha256": "71e8dfc19ff2216a277315972dcca0ea83773e8ec214f3cf352ee9591ce38037",
+    "identity": "match",
+    "workbench_js": {
+      "path": "/Users/admin/l3/Cursor.app/Contents/MacOS/../Resources/app/out/vs/workbench/workbench.desktop.main.js",
+      "computed_sha256": "044ce0931100af5fe95403e9a692b02932bc3e13a6763f576b851f503fefa518",
+      "expected_sha256": "044ce0931100af5fe95403e9a692b02932bc3e13a6763f576b851f503fefa518",
+      "identity": "match"
+    }
+  },
+  "fake_home": "/Users/admin/l3/runs/r2-1791879851-1416/home",
+  "launch_args": [
+    "--user-data-dir=/Users/admin/l3/runs/r2-1791879851-1416/home/cursor-data",
+    "--disable-crash-reporter"
+  ],
+  "interventions": {
+    "disable_crash_reporter": true,
+    "isolated_home": "path redirect only \u2014 NOT filesystem/permission isolation",
+    "isolated_user_data_dir": true,
+    "login": "none",
+    "extra_args": [],
+    "environment": "env -i minimal environ (env-var scope only; NOT an OS user boundary)"
+  },
+  "synthetic_inputs": {
+    "claude": {
+      "packaged_file": "inputs/claude-history.jsonl",
+      "source_file": "/Users/admin/l3/runs/r2-1791879851-1416/home/.claude/history.jsonl",
+      "sessionId": "r2-1791879851-1416-canary-claude",
+      "timestamp_ms": 1791869851244
+    },
+    "codex": {
+      "packaged_file": "inputs/codex-history.jsonl",
+      "source_file": "/Users/admin/l3/runs/r2-1791879851-1416/home/.codex/history.jsonl",
+      "session_id": "r2-1791879851-1416-canary-codex",
+      "ts_seconds": 1791871851
+    }
+  },
+  "phases": {
+    "probe_epoch_s": 1791879851.335,
+    "probe_result": "200",
+    "launch_epoch_s": 1791879852.645,
+    "ready_epoch_s": 1791879862.811,
+    "obs_end_epoch_s": 1791880092.89,
+    "requested_duration_s": 240,
+    "ready_timeout_s": 90,
+    "total_runtime_s": 240.24500012397766,
+    "observed_window_s": 230.0789999961853
+  },
+  "readiness": {
+    "workbench_window_logdir_and_renderer_log_and_state_db": true,
+    "basis": "window*_wb*/renderer.log non-empty AND state.vscdb exists \u2014 independent of ex_hs2"
+  },
+  "process": {
+    "launch_pid": 1437,
+    "early_exit": false,
+    "cancelled": false,
+    "child_pids": [
+      "1446",
+      "1448",
+      "1461"
+    ],
+    "post_termination_remaining_processes": "0",
+    "cleanup_incomplete": false
+  },
+  "runner": {
+    "script_sha256": "7685271a0cef6104da52f7ff1b4855ef315fe1d89f0d6f7bdeec3d1f6a37aa2e"
+  },
+  "written_at_utc": "2026-10-13T08:28:16.369272+00:00"
+}

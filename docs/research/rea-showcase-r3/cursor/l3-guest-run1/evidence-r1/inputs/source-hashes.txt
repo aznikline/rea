@@ -1,0 +1,2 @@
+82da0a96d3efd1aabb34d8ab1570ef81253e0eb7ba3257620203321ef7d5114d  .claude/history.jsonl
+ed0a62e2fb661f3b0d95444f9a979c5f1cc80e0f1e417be00fb97f3437e04c47  .codex/history.jsonl

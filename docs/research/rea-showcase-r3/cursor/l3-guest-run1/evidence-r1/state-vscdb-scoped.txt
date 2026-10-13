@@ -1,0 +1,2 @@
+telemetry.firstSessionDate|Tue, 13 Oct 2026 08:17:36 GMT
+telemetry.currentSessionDate|Tue, 13 Oct 2026 08:17:36 GMT
