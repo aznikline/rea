@@ -256,3 +256,44 @@ Statuses: `SUPPORTED` / `PARTIAL` / `REFUTED` / `UNKNOWN` / `NOT_RUN` /
   pull in progress through intermittent WAN (auto-retry). Guest mitmproxy
   12.2.3 arm64 staged + hashed. Host trust/proxy baseline snapshotted for
   post-experiment unchanged-check.
+
+## R3.3 updates
+
+### CUR-08 — verifier defects fixed; three-tier verdicts (R3.3)
+- External review reproduced 4 verifier misjudgments (ms/s unit, skipped
+  missing hashes.txt, count-only dedup, substring bookmarks). All fixed:
+  exact key+value bookmarks, UTF-16 code-unit `n`, ms-scaled codex ts,
+  real set relations, packaged inputs required not degraded.
+- EVIDENCE_INTEGRITY / RUN_VALIDITY / OBSERVATION are now independent;
+  a complete valid run with no events = NOT_OBSERVED_WITHIN_WINDOW.
+- Regression: tools/test-fixtures.py F1-F11, **11/11 matched**,
+  including the 4 review counterexamples + field-order/whitespace,
+  corrupt breadcrumb, non-BMP char, early-exit, not-ready, missing-input.
+- Re-extracted committed packages (runs/smoketest2, runs/smoketest6) now
+  carry inputs/, extract-report.json, package-relative hashes. smoketest6
+  verdict: INTEGRITY PASS / VALIDITY QUALIFIED (pre-readiness manifest) /
+  NOT_OBSERVED_WITHIN_WINDOW.
+
+### CUR-09 — run validity re-scoped
+- smoketest3 = PROGRAM ABORT (script edited mid-run) — excluded from
+  replicate count. smoketest5 = cleanup-stage runner defect.
+- Valid silent observations: smoketest2 + smoketest6 only; neither had
+  readiness measured at run time (check added in R3.3 runner).
+- 101-vs-7 keys = profile-state difference only; "remote config never
+  arrived" / "poll never ran" / "remote kill switch" NOT proven; workbench
+  under-initialization is a live alternative explanation.
+- api2 root-path 200 = one probe at one instant, not Cursor-request or
+  window-level WAN evidence.
+
+### SEC-01 — ambient env exposure scope (controlled storage)
+- RUN-1/smoketest2/3 passed parent environ into the target process.
+  Variable-name scope recorded locally (NOT committed, no values):
+  ARK_API_KEY, GEMINI_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY,
+  KIMI_API_KEY, VERCEL_TOKEN. Visibility ≠ read/egress — neither
+  observed. Rotation is the user's decision.
+
+### OPS-03 — same-env base/head for machoSliceReader failure
+- tests/boundary/providers/native/machoSliceReader.test.ts FAILS
+  identically at base 4c0e0658 and head cede1a6f1 on this host
+  (lipo cpusubtype disagreement on macOS 27 /bin/ls) — pre-existing,
+  not introduced by cede1a6f1. Still a portability gap on the branch.

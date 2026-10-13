@@ -1,12 +1,19 @@
 #!/bin/bash
-# verify-evidence.sh — verify an extracted evidence directory.
+# verify-evidence.sh — verify a packaged evidence directory.
 #
-# Does NOT launch the target. Checks: evidence file hashes, synthetic-input
-# hashes, canary field correspondence (sessionId/timestamp/n=char length),
-# event-vs-launch timing, and reports raw vs deduplicated record counts.
+# Does NOT launch the target. Emits three independent verdicts:
+#   EVIDENCE_INTEGRITY — required files present, hashes recompute,
+#                        inputs packaged, parse health acceptable.
+#   RUN_VALIDITY       — run actually reached an observable state
+#                        (readiness + no early exit + cleanup complete).
+#   OBSERVATION        — whether canary fields propagated, reported as
+#                        OBSERVED / NOT_OBSERVED_WITHIN_WINDOW /
+#                        NOT_ASSESSED (when integrity or validity fails).
 #
-# Usage: verify-evidence.sh --evidence OUT_DIR
-# Exit: 0 = all checks passed; 1 = at least one check failed.
+# A complete package from a valid run with no events is a legitimate
+# NOT_OBSERVED result — integrity does not require a positive.
+#
+# Usage: verify-evidence.sh --evidence DIR
 
 set -euo pipefail
 
@@ -14,90 +21,223 @@ EV=""
 while [ $# -gt 0 ]; do
   case "$1" in --evidence) EV=$2; shift 2 ;; *) echo "unknown arg: $1" >&2; exit 2 ;; esac
 done
-[ -n "$EV" ] || { echo "usage: verify-evidence.sh --evidence OUT_DIR" >&2; exit 2; }
-[ -f "$EV/run-manifest.json" ] || { echo "no run-manifest.json" >&2; exit 1; }
+[ -n "$EV" ] || { echo "usage: verify-evidence.sh --evidence DIR" >&2; exit 2; }
 
 EV="$EV" python3 <<'PYEOF'
 import hashlib, json, os, re, sys
 
 ev = os.environ["EV"]
-m = json.load(open(os.path.join(ev, "run-manifest.json")))
-fails = []
-def check(name, ok, detail=""):
-    print(f"{'PASS' if ok else 'FAIL'} {name} {detail}")
-    if not ok: fails.append(name)
 
-# 1. evidence hashes — shasum output is "<hash>  <path>"; paths may be
-# absolute (synthetic inputs inside the run dir) or evidence-relative.
+integrity_fails = []
+validity_notes = []
+obs_fails = []
+
+def icheck(name, ok, detail=""):
+    print(f"INTEGRITY {'PASS' if ok else 'FAIL'} {name} {detail}")
+    if not ok: integrity_fails.append(name)
+def vcheck(name, ok, detail=""):
+    print(f"VALIDITY  {'PASS' if ok else 'WARN'} {name} {detail}")
+    if not ok: validity_notes.append(name)
+def ocheck(name, ok, detail=""):
+    print(f"OBSERVE   {'PASS' if ok else 'MISS'} {name} {detail}")
+    if not ok: obs_fails.append(name)
+
+REQUIRED = ["run-manifest.json", "hashes.txt", "breadcrumbs-raw.txt",
+            "breadcrumbs-deduped.txt", "state-vscdb-scoped.txt",
+            "extract-report.json"]
+
+# ---------- 1. EVIDENCE_INTEGRITY ----------
+missing = [f for f in REQUIRED if not os.path.exists(os.path.join(ev, f))]
+icheck("required files present", not missing, str(missing))
+
+m = None
+if os.path.exists(os.path.join(ev, "run-manifest.json")):
+    try:
+        m = json.load(open(os.path.join(ev, "run-manifest.json")))
+    except ValueError as e:
+        icheck("run-manifest parses", False, str(e))
+else:
+    icheck("run-manifest parses", False, "absent")
+
+# hash manifest: EVERY entry must recompute; file absent is a failure,
+# not a skip.
 hpath = os.path.join(ev, "hashes.txt")
 if os.path.exists(hpath):
+    n_entries = 0
     for line in open(hpath):
         parts = line.rsplit(None, 1)
-        if len(parts) != 2: continue
+        if len(parts) != 2:
+            icheck("hashes.txt line parses", False, line.strip()[:60]); continue
         want, p = parts[0], parts[1].strip()
+        n_entries += 1
         path = p if os.path.isabs(p) else os.path.join(ev, p)
         if os.path.exists(path):
             got = hashlib.sha256(open(path, "rb").read()).hexdigest()
-            check(f"hash {os.path.basename(path)}", got == want, got[:12])
+            icheck(f"hash {p}", got == want, got[:12])
         else:
-            check(f"hash {p}", False, "file not found")
+            icheck(f"hash {p}", False, "referenced file missing")
+    icheck("hashes.txt non-empty", n_entries > 0, f"{n_entries} entries")
 
-# 2. raw vs deduped breadcrumb counts
-raw = open(os.path.join(ev, "breadcrumbs-raw.txt")).read().splitlines()
-ded = open(os.path.join(ev, "breadcrumbs-deduped.txt")).read().splitlines()
-check("dedup is a subset of raw", len(ded) <= len(raw), f"raw={len(raw)} dedup={len(ded)}")
-dupes = len(raw) - len(ded)
-print(f"INFO duplicate raw records: {dupes} (raw counts are NOT distinct events)")
+# packaged inputs must exist inside the package — resolved via manifest
+# `packaged_file`, with the extractor's conventional path as fallback
+# for manifests written before the field existed.
+if m:
+    canon = m.get("synthetic_inputs", {})
+    for side in ("claude", "codex"):
+        rel = canon.get(side, {}).get("packaged_file") or f"inputs/{side}-history.jsonl"
+        icheck(f"{side} packaged input exists",
+               os.path.exists(os.path.join(ev, rel)), rel)
 
-# 3. canary field correspondence
-canon = m["synthetic_inputs"]
-bodies = [l.split(": ", 1)[-1] for l in raw]
-evs = []
-for b in bodies:
-    mm = re.search(r'\{"timestamp":([0-9.]+),"category":"event","message":"(ex_hs[0-9]*)","data":(\{.*\})\}', b)
-    if mm: evs.append({"ts": float(mm.group(1)), "msg": mm.group(2), "data": json.loads(mm.group(3))})
+# extract-report parse health
+report = {}
+rpath = os.path.join(ev, "extract-report.json")
+if os.path.exists(rpath):
+    try:
+        report = json.load(open(rpath))
+        icheck("no extractor file errors", not report.get("files_with_errors"),
+               str(report.get("files_with_errors"))[:80])
+    except ValueError as e:
+        icheck("extract-report parses", False, str(e))
 
-cl = canon["claude"]; cx = canon["codex"]
-cl_ev = [e for e in evs if e["data"].get("sessionId") == cl["sessionId"]]
-cx_ev = [e for e in evs if e["data"].get("sessionId") == cx["session_id"]]
+# raw/deduped REAL set relationship — not just counts
+raw_lines, ded_lines, raw_bodies = [], [], []
+if os.path.exists(os.path.join(ev, "breadcrumbs-raw.txt")):
+    raw_lines = open(os.path.join(ev, "breadcrumbs-raw.txt")).read().splitlines()
+    raw_bodies = [l.split(": ", 1)[-1] for l in raw_lines if l.strip()]
+if os.path.exists(os.path.join(ev, "breadcrumbs-deduped.txt")):
+    ded_lines = open(os.path.join(ev, "breadcrumbs-deduped.txt")).read().splitlines()
+raw_set, ded_set = set(raw_bodies), set(ded_lines)
+icheck("dedup bodies are a true subset of raw bodies", ded_set <= raw_set,
+       f"raw={len(raw_bodies)} dedup={len(ded_lines)} extra={len(ded_set - raw_set)}")
+icheck("dedup equals unique raw bodies", ded_set == raw_set,
+       f"|raw_set|={len(raw_set)} |dedup_set|={len(ded_set)}")
+dups = len(raw_bodies) - len(raw_set)
+print(f"INFO duplicate raw records: {dups} (raw count is NOT a distinct-event count)")
 
-if m["history_mode"] == "canary":
-    check("claude canary sessionId observed", len(cl_ev) >= 1)
-    if cl_ev:
-        check("claude ts matches input ms", cl_ev[0]["data"].get("ts") == cl["timestamp_ms"], f"{cl_ev[0]['data'].get('ts')} vs {cl['timestamp_ms']}")
-        # n = character length of the synthesized display text; the input file
-        # records the exact bytes that were written.
-        input_file = cl["file"]
-        if os.path.exists(input_file):
-            n_expected = len(json.loads(open(input_file).read())["display"])
-            check("claude n == display char length", cl_ev[0]["data"].get("n") == n_expected,
-                  f"{cl_ev[0]['data'].get('n')} vs {n_expected}")
-        else:
-            check("claude n is int", isinstance(cl_ev[0]["data"].get("n"), int))
-    check("codex canary sessionId observed", len(cx_ev) >= 1)
-    if cx_ev:
-        check("codex ts matches input s", cx_ev[0]["data"].get("ts") == cx["ts_seconds"], f"{cx_ev[0]['data'].get('ts')} vs {cx['ts_seconds']}")
-        input_file = cx["file"]
-        if os.path.exists(input_file):
-            n_expected = len(json.loads(open(input_file).read())["text"])
-            check("codex n == text char length", cx_ev[0]["data"].get("n") == n_expected,
-                  f"{cx_ev[0]['data'].get('n')} vs {n_expected}")
-else:
-    check("no canary ex_hs2 in none-history run", len([e for e in evs if e["msg"] == "ex_hs2"]) == 0)
+# ---------- 2. RUN_VALIDITY ----------
+validity = "NOT_ASSESSED"
+if m:
+    readiness = m.get("readiness", {})
+    proc = m.get("process", {})
+    phases = m.get("phases", {})
+    vcheck("readiness flag present", "workbench_window_logdir_and_renderer_log_and_state_db" in readiness)
+    vcheck("workbench reached observable state",
+           readiness.get("workbench_window_logdir_and_renderer_log_and_state_db") is True)
+    vcheck("no early exit", proc.get("early_exit") is False)
+    vcheck("cleanup complete",
+           proc.get("post_termination_remaining_processes") in (0, "0"),
+           str(proc.get("post_termination_remaining_processes")))
+    vcheck("phase epochs recorded",
+           all(phases.get(k) is not None for k in
+               ("probe_epoch_s", "launch_epoch_s", "obs_end_epoch_s")))
+    tgt = m.get("target", {})
+    vcheck("target identity computed", bool(tgt.get("computed_sha256")),
+           tgt.get("identity", "?"))
+    if "script_sha256" not in m.get("runner", {}):
+        vcheck("runner identity recorded", False, "older manifest without script_sha256")
 
-# 4. timing: first event after launch
-if evs:
-    first = min(e["ts"] for e in evs)
-    delta = first - m["timing"]["start_epoch_s"]
-    print(f"INFO first recorded event at +{delta:.3f}s after launch epoch")
-    check("event timestamp after launch", delta > 0)
+    hard_invalid = proc.get("early_exit") is True
+    qualified = all([
+        readiness.get("workbench_window_logdir_and_renderer_log_and_state_db") is True,
+        proc.get("early_exit") is False,
+    ])
+    validity = "INVALID" if hard_invalid else ("VALID" if qualified else "QUALIFIED")
 
-# 5. bookmark correspondence in scoped sqlite
-sq = open(os.path.join(ev, "state-vscdb-scoped.txt")).read()
-if m["history_mode"] == "canary":
-    check("claude lastTimestamp bookmark", str(cl["timestamp_ms"]) in sq)
-    check("codex lastTimestamp bookmark", str(cx["ts_seconds"]) in sq)
+# ---------- 3. OBSERVATION ----------
+observed = "NOT_ASSESSED"
+if not integrity_fails and validity != "INVALID" and m:
+    bodies = raw_bodies
+    evs = []
+    parse_errors = 0
+    for b in bodies:
+        try:
+            rec = json.loads(b)
+        except (ValueError, UnicodeDecodeError):
+            parse_errors += 1
+            continue
+        if isinstance(rec, dict) and rec.get("category") == "event":
+            evs.append(rec)
+    icheck("breadcrumb bodies parse as JSON records", parse_errors == 0,
+           f"{parse_errors} unparseable")
 
-print(f"\n{'VERDICT: PASS' if not fails else 'VERDICT: FAIL ' + str(fails)}")
-sys.exit(1 if fails else 0)
+    cl = m["synthetic_inputs"]["claude"]
+    cx = m["synthetic_inputs"]["codex"]
+
+    def utf16_len(s):
+        # JavaScript String.length = UTF-16 code units.
+        return len(s.encode("utf-16-le")) // 2
+
+    if m.get("history_mode") == "canary":
+        cl_ev = [e for e in evs if e.get("data", {}).get("sessionId") == cl["sessionId"]]
+        cx_ev = [e for e in evs if e.get("data", {}).get("sessionId") == cx["session_id"]]
+
+        ocheck("claude canary sessionId observed", len(cl_ev) >= 1)
+        if cl_ev:
+            d = cl_ev[0].get("data", {})
+            ocheck("claude ts matches input ms exactly",
+                   d.get("ts") == cl["timestamp_ms"],
+                   f"{d.get('ts')} vs {cl['timestamp_ms']}")
+            inp = os.path.join(ev, cl.get("packaged_file") or "inputs/claude-history.jsonl")
+            if os.path.exists(inp):
+                text = json.loads(open(inp).read())["display"]
+                ocheck("claude n == UTF-16 code-unit length",
+                       d.get("n") == utf16_len(text),
+                       f"{d.get('n')} vs {utf16_len(text)}")
+            else:
+                ocheck("claude n check", False, "packaged input missing — no downgrade")
+
+        ocheck("codex canary sessionId observed", len(cx_ev) >= 1)
+        if cx_ev:
+            d = cx_ev[0].get("data", {})
+            # Event ts is milliseconds; input ts is SECONDS → compare to ms.
+            expected_ms = cx["ts_seconds"] * 1000
+            ocheck("codex ts == input seconds * 1000",
+                   d.get("ts") == expected_ms,
+                   f"{d.get('ts')} vs {expected_ms}")
+            inp = os.path.join(ev, cx.get("packaged_file") or "inputs/codex-history.jsonl")
+            if os.path.exists(inp):
+                text = json.loads(open(inp).read())["text"]
+                ocheck("codex n == UTF-16 code-unit length",
+                       d.get("n") == utf16_len(text),
+                       f"{d.get('n')} vs {utf16_len(text)}")
+            else:
+                ocheck("codex n check", False, "packaged input missing — no downgrade")
+
+        # bookmarks: exact key + parsed value, never substring search
+        bm = {}
+        sp = os.path.join(ev, "state-vscdb-scoped.txt")
+        if os.path.exists(sp):
+            for line in open(sp):
+                if "|" in line:
+                    k, _, v = line.rstrip("\n").partition("|")
+                    bm[k] = v
+        ocheck("claude lastTimestamp bookmark exact",
+               bm.get("externalCliAnalytics.lastTimestamp.claude") == str(cl["timestamp_ms"]),
+               bm.get("externalCliAnalytics.lastTimestamp.claude", "absent"))
+        ocheck("codex lastTimestamp bookmark exact",
+               bm.get("externalCliAnalytics.lastTimestamp.codex") == str(cx["ts_seconds"] * 1000),
+               bm.get("externalCliAnalytics.lastTimestamp.codex", "absent"))
+
+        observed = "OBSERVED" if not obs_fails else "NOT_OBSERVED_WITHIN_WINDOW"
+    else:
+        ocheck("no ex_hs2 in none-history run",
+               len([e for e in evs if str(e.get("message", "")).startswith("ex_hs")]) == 0)
+        observed = "NOT_OBSERVED_WITHIN_WINDOW" if obs_fails == [] else "OBSERVED"
+
+    # timing sanity (info-level, uses distinct phase epochs)
+    if evs and m.get("phases", {}).get("launch_epoch_s") is not None:
+        first = min(e.get("timestamp", 0) for e in evs)
+        delta = first - m["phases"]["launch_epoch_s"]
+        print(f"INFO first recorded event at +{delta:.3f}s after launch epoch")
+
+# a mid-observation integrity failure (e.g. unparseable breadcrumb) must
+# veto an OBSERVED verdict computed inside the same block.
+if integrity_fails:
+    observed = "NOT_ASSESSED"
+
+print()
+print(f"EVIDENCE_INTEGRITY = {'PASS' if not integrity_fails else 'FAIL ' + str(integrity_fails)}")
+print(f"RUN_VALIDITY       = {validity}")
+print(f"OBSERVATION        = {observed}")
+sys.exit(0 if not integrity_fails and validity != "INVALID" else 1)
 PYEOF
