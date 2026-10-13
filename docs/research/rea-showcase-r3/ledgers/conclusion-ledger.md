@@ -297,3 +297,15 @@ Statuses: `SUPPORTED` / `PARTIAL` / `REFUTED` / `UNKNOWN` / `NOT_RUN` /
   identically at base 4c0e0658 and head cede1a6f1 on this host
   (lipo cpusubtype disagreement on macOS 27 /bin/ls) — pre-existing,
   not introduced by cede1a6f1. Still a portability gap on the branch.
+
+### OPS-04 — R3.3 housekeeping
+- #2262/#2263: zero review comments, zero review state changes; CI
+  runs remain action_required (empty jobs). Status recorded as
+  maintainer-approval-blocked; no CI-chasing commits.
+- tart pull attempt 1 died on repeated network loss after partial layer
+  cache; bounded retry loop (5 attempts, 60 s backoff) running in
+  background. Image digest will be pinned on first successful resolve.
+- upstream main readings (all timestamped, moving target — no chasing):
+  `974f11d01` (R3 baseline), `d96550f2f` (R3.1 PR base), `ad08510a1`
+  (R3.1 review-time), `4773c152b` (R3.3 reviewer read), `ca2d15b3e`
+  (R3.3 agent re-fetch, current).
