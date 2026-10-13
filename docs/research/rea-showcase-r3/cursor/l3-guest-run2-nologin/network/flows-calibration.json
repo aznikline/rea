@@ -1,0 +1,18 @@
+{
+ "source_capture": "calibration.mitm",
+ "flow_count_total": 2,
+ "target_flows": [
+  {
+   "ts_utc": "2026-10-13T06:18:41Z",
+   "method": "GET",
+   "host": "example.com",
+   "path": "/",
+   "status": 200
+  }
+ ],
+ "non_target_hosts_counts_only": {
+  "example.com": 1,
+  "weatherkit.apple.com": 1
+ },
+ "note": "non-target flows are system noise; host names and counts only"
+}

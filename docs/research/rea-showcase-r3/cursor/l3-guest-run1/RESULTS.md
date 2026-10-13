@@ -93,6 +93,36 @@ exclude:
   direct API, LaunchAgent, profiles, RFB) all failed — macOS 15.7.7
   enforces interactive consent for trust settings in this posture.
 
+## Corrections (R3.6 review follow-up)
+
+**R0 window is NOT a ~240s observation.** Its manifest records
+`total_runtime_s=6015.9`, `observed_window_s=6010.8`. Flow timestamps in
+`capture-r0.mitm` show the guest was suspended repeatedly between
+06:31–08:09 UTC (resume chunks at 07:15, 07:47, 08:09; wall-clock vs
+kernel-time divergence inflated the recorded window). The runner's
+`sleep` counts guest-kernel time, so r0b's *active* runtime was the
+standard ~240s spread across suspend/resume — the 6010s figure cannot
+be read as ~100 minutes of continuous observation and R0 is excluded
+from equal-window comparison.
+
+**capture-r0.mitm attribution.** Both `api2.cursor.sh` flows (first at
+06:22:16) belong to the *aborted* first R0 attempt, not r0b. During
+r0b's own launch window (06:29–06:31) no Cursor-bound flow was
+captured at all.
+
+**Mechanism framing corrected.** `files_scanned=0, missing_dir=true`
+proves only that the `cursor-sentry-events.log` source does not exist
+in these runs. "Workbench reached readiness", "specified log absent",
+and "target mechanism executed" are three separate judgements — this
+round establishes the first two only.
+
+**Coverage scope.** `ELIGIBLE=YES` applies to the *declared
+methodology* (manifest + packaged inputs + scoped extraction); it does
+not extend to "all outbound network paths verified negative". QUIC /
+direct connections bypassing the system HTTP(S) proxy remain
+uncovered. The `launch.log`-referenced update URL absent from the
+capture is an open question, not evidence of bypass.
+
 ## Artifact locations
 
 - Guest: `/Users/admin/l3/{runs,evidence-r*,capture-*.mitm}`

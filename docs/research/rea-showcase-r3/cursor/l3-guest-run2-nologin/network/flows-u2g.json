@@ -1,0 +1,27 @@
+{
+ "file": "capture-u2g.mitm",
+ "flow_count": 3,
+ "flows": [
+  {
+   "ts_utc": "2026-10-13T10:02:27Z",
+   "method": "GET",
+   "host": "configuration.ls.apple.com",
+   "path": "/config/defaults?os=macos&os_version=15.7.7&hardware=VirtualMac2",
+   "status": 304
+  },
+  {
+   "ts_utc": "2026-10-13T10:02:27Z",
+   "method": "POST",
+   "host": "fbs.smoot.apple.com",
+   "path": "/fb?type=FeedbackV2PB&v=2",
+   "status": 200
+  },
+  {
+   "ts_utc": "2026-10-13T10:03:38Z",
+   "method": "GET",
+   "host": "weatherkit.apple.com",
+   "path": "/api/v2/weather/en-US/39.917/116.417?timezone=Asia/Shanghai&dataSets=airQuality",
+   "status": 200
+  }
+ ]
+}

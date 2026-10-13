@@ -79,3 +79,45 @@ implicit "new in 3.24.9" framing is not supported.
   enqueue behavior (intervention runs, separately labeled).
 - L1: trace `analyticsService`/`trackEvent` drain path to endpoint name.
 - L3: authorized MITM for field-level egress.
+
+## R3.6 additions — egress sink and mirror semantics (3.24.12)
+
+**`cursor-sentry-events.log` is a privacy-mode-only mirror, not a
+mechanism breadcrumb.** In `out/main.js`, `_writeSentryEventToMirror`
+is invoked only inside `_isLegacyPrivacyMode === true` branch of the
+envelope path (`sendEnvelope`-family, offset ~1991000). The log is
+created lazily on first mirrored envelope
+(`Ae(environmentService.logsHome,"cursor-sentry-events.log")`). In
+default (non-legacy-privacy) mode the file will *never* be created —
+its absence in guest runs therefore cannot be read as "ex_hs2 never
+fired" or "no telemetry".
+
+**Sentry envelope drop rules** (same class): `_internalSendEnvelope`
+returns immediately when `privateInferenceLockdown !== "disabled"`,
+and `_shouldDropEvent` drops when lockdown enabled, `event.process ===
+"unknown"`, dedupe hits, or legacy-privacy non-fatal events. Guest
+runs log `private inference lockdown disabled`, so this drop path was
+inactive.
+
+**Analytics egress endpoint ≠ observed host.** `product.json` sets
+`statsigLogEventProxyUrl = https://api3.cursor.sh/tev1/v1` and
+`statsigClientKey = client-Bm4HJ0...` — statsig traffic targets
+**api3**, while all guest runs showed only api2 flows. `trackEvent`
+in `uWn` goes through `analyticsService` → statsig `logEvent` →
+batched enqueue. No api3 connection attempt appeared in any capture or
+lsof sample, consistent with (but not proving) either gate-false or
+enqueue-without-flush.
+
+**Gate default.** `enable_ex_hs: {client:!0, default:!0}` in the flag
+registry — the compiled-in fallback is ON; `checkFeatureGate` consults
+statsig first, falling back to defaults when the SDK lacks fetched
+config. Whether the statsig client initializes without a user/login is
+not answered by local artifacts (no bootstrap cache was written).
+
+**`_poll` trigger**: constructor-time immediate call +
+`cronService.registerTask({id:"external-cli-analytics-poll",
+intervalMs:3600*1e3})` — the contribution is registered `Eventually`,
+so first poll should land shortly after workbench settle; SIGKILL at
+window end can orphan the `storageService.store` flush of
+`externalCliAnalytics.lastTimestamp.*`, so key absence in state.vscdb
+does not prove the poll never ran.

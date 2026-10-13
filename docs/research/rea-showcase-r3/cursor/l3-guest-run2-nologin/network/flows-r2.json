@@ -1,0 +1,17 @@
+{
+ "source_capture": "capture-r2.mitm",
+ "flow_count_total": 2,
+ "target_flows": [
+  {
+   "ts_utc": "2026-10-13T08:24:16Z",
+   "method": "GET",
+   "host": "api2.cursor.sh",
+   "path": "/extensions-control",
+   "status": 200
+  }
+ ],
+ "non_target_hosts_counts_only": {
+  "weatherkit.apple.com": 1
+ },
+ "note": "non-target flows are system noise; host names and counts only"
+}

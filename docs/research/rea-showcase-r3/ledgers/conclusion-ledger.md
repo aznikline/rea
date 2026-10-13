@@ -345,3 +345,30 @@ Statuses: `SUPPORTED` / `PARTIAL` / `REFUTED` / `UNKNOWN` / `NOT_RUN` /
   192.168.64.2 alive, macOS 15.7.7 arm64 — environment precheck PASS.
   Cleanly shut down after precheck to free host resources.
 - Host disk 92% used (36Gi free) — flag before guest installs.
+
+### R3.5 — first guest L3 observation (constrained)
+- c47938400 pushed to fork/research/showcase-r3; R0b/R1/R2 all
+  PASS/VALID/NOT_OBSERVED per packaged-observation scope.
+- Corrections appended in l3-guest-run1/RESULTS.md: R0 window is
+  6010.8 s wall-clock inflated by VM suspend/resume (excluded from
+  equal-window comparison); capture-r0.mitm is mixed-provenance; the
+  sentry-mirror log is a privacy-mode-only artifact.
+
+### R3.6 — no-login activation matrix complete (all negative in scope)
+- U0 run-1791882586-876: PASS/VALID/NOT_OBSERVED/ELIGIBLE.
+- U1 run-1791884333-1354 / U2 run-1791884745-1853 / U2g
+  run-1791885583-2605: PASS/QUALIFIED/NOT_OBSERVED/NO
+  (workbench_readiness_not_reached — folder-window logdir naming
+  artifact of the detector; renderer.log shows loaded workbench).
+- U2g additionally verified the target window on-screen in the admin
+  GUI session; Cmd+I injected; panel state unverified (Screen
+  Recording TCC absent — screenshots return wallpaper only).
+- Network: api2.cursor.sh /extensions-control only (u0–u2), zero
+  Cursor flows in u2g; zero canary/ex_hs2/api3 markers in container
+  bytes; lsof shows no direct egress, no UDP; NetLog (truncated)
+  corroborates api2-only.
+- Static: enable_ex_hs default=true; ex_hs2 egress targets
+  api3.cursor.sh/tev1/v1 (statsig proxy); sentry-mirror is
+  privacy-mode-only; ≥4 non-auth explanations remain for
+  non-observation. "Login required" NOT demonstrated.
+- No-login scope closed: NOT OBSERVED WITHIN THIS SCOPE.

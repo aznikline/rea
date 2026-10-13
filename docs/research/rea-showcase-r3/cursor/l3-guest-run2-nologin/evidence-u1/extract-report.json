@@ -1,0 +1,9 @@
+{
+  "files_scanned": 0,
+  "bytes_scanned": 0,
+  "records_matched": 0,
+  "files_with_errors": [],
+  "missing_dir": true,
+  "unparsed_candidates": [],
+  "format_contract": "one JSON record per line in cursor-sentry-events.log; records are found as balanced {...} spans with string/escape awareness; an event record may be nested inside a wrapper object"
+}
