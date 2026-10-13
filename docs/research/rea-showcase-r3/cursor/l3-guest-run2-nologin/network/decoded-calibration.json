@@ -1,0 +1,39 @@
+{
+ "source_capture": "calibration.mitm",
+ "decoder": "mitmproxy 12.2.3 FlowReader via mitmdump -nr + addon hooks",
+ "records_total": 5,
+ "type_counts": {
+  "http": 5
+ },
+ "decode_errors": [],
+ "target_flows": [
+  {
+   "ts_utc": "2026-10-13T06:18:40Z",
+   "method": "GET",
+   "host": "example.com",
+   "path": "/",
+   "status": 200,
+   "error": null,
+   "req_body_state": "empty",
+   "req_body_raw_len": 0,
+   "req_body_dec_len": 0
+  },
+  {
+   "ts_utc": "2026-10-13T06:18:51Z",
+   "method": "GET",
+   "host": "example.com",
+   "path": "/",
+   "status": 200,
+   "error": null,
+   "req_body_state": "empty",
+   "req_body_raw_len": 0,
+   "req_body_dec_len": 0
+  }
+ ],
+ "non_target_hosts_counts_only": {
+  "iadsdk.apple.com": 1,
+  "support-sp.apple.com": 1,
+  "weatherkit.apple.com": 1
+ },
+ "note": "decoded with official mitmproxy API; non-target system flows reduced to host+count"
+}

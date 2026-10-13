@@ -1,0 +1,39 @@
+{
+ "source_capture": "capture-r0.mitm",
+ "decoder": "mitmproxy 12.2.3 FlowReader via mitmdump -nr + addon hooks",
+ "records_total": 28,
+ "type_counts": {
+  "http": 28
+ },
+ "decode_errors": [],
+ "target_flows": [
+  {
+   "ts_utc": "2026-10-13T06:22:20Z",
+   "method": "GET",
+   "host": "api2.cursor.sh",
+   "path": "/extensions-control",
+   "status": 200,
+   "error": null,
+   "req_body_state": "empty",
+   "req_body_raw_len": 0,
+   "req_body_dec_len": 0
+  },
+  {
+   "ts_utc": "2026-10-13T06:29:55Z",
+   "method": "GET",
+   "host": "api2.cursor.sh",
+   "path": "/extensions-control",
+   "status": 200,
+   "error": null,
+   "req_body_state": "empty",
+   "req_body_raw_len": 0,
+   "req_body_dec_len": 0
+  }
+ ],
+ "non_target_hosts_counts_only": {
+  "stocks-data-service.apple.com": 20,
+  "weatherkit.apple.com": 5,
+  "ocsp2.apple.com": 1
+ },
+ "note": "decoded with official mitmproxy API; non-target system flows reduced to host+count"
+}

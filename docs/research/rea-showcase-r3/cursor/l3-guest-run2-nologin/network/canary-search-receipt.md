@@ -1,33 +1,44 @@
-# Canary / marker search receipt
+# Canary / marker search receipt — formal-decode revision
 
-Search object: **raw container bytes** of each `.mitm` (the file
-contains mitmproxy's serialized flow records; decrypted request/response
-payloads are embedded for intercepted HTTPS flows). This is a
-container-byte search — stronger than decoded-only for these captures
-because intercepted content is stored plaintext. Non-decryptable or
-body-elided flows would not be covered; no `flow_detail` truncation was
-observed in the stored streams.
+Supersedes the earlier container-byte receipt. Correction: "container
+bytes are a stronger search" is **withdrawn**. TLS interception does
+not imply HTTP content-encoding is removed, and `raw_content` may
+still be compressed; `msg.content` (decoded) and `msg.raw_content`
+must be searched separately. `flow_detail` only controls display
+verbosity — it says nothing about whether bodies were stored, so no
+body-completeness claim rests on it.
 
-Patterns searched (verbatim bytes): each run's full run-id,
-`canary-claude`, `canary-codex`, `REA_R33_CANARY` prefix, `ex_hs2`,
-`api3.cursor.sh`, `/tev1/` (statsig log-event proxy path from
-product.json), `sessionId`, `agent`.
+Decoder: mitmproxy 12.2.3 (`mitmdump -nr`, `tools/decode-dump.py`).
+For every decoded flow the addon records `none | empty | present |
+raw_error | decode_error` per request/response body — absent, empty,
+and undecodable are counted separately.
 
-## Results
+Patterns: run-id, `canary-claude`, `canary-codex`, `REA_R33_CANARY`,
+`ex_hs2`, `api3.cursor.sh`, `/tev1/`, `sessionId`, `agent`.
 
-| capture | run id | canary-claude | canary-codex | REA_R33_CANARY | ex_hs2 | api3 | /tev1/ |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| capture-r1.mitm | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| capture-r2.mitm | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| capture-u0.mitm | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| capture-u1.mitm | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| capture-u2.mitm | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| capture-u2g.mitm | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+## Three-layer results (all captures)
 
-`agent` matched u2 twice — both hits are `user-agent:` header strings
-inside weatherkit/stocks flows, not analytics content.
+| capture | records | container-byte hits | raw-body hits | decoded-body hits |
+|---|---:|---:|---:|---:|
+| calibration | 5 | 0 | 0 | 0 |
+| capture-r0 | 28 | 0 | 0 | 0 |
+| capture-r1 | 3 | 0 | 0 | 0 |
+| capture-r2 | 2 | 0 | 0 | 0 |
+| capture-u0 | 2 | 0 | 0 | 0 |
+| capture-u1 | 7 | 0 | 0 | 0 |
+| capture-u2 | 2 | 0 | 0 | 0 |
+| capture-u2g | 3 | 0 | 0 | 0 |
 
-Interpretation bound: zero hits = "these decrypted, proxy-captured
-bytes did not contain the markers". It does not exclude event content
-sent un-decrypted, over a path not covered, or events that were never
-enqueued because a gate upstream failed.
+Body states across all HTTP records: every request body except
+u2g's `POST fbs.smoot.apple.com` (present, Apple feedback payload)
+and one calibration POST is `empty`; responses `present` except r1's
+one `empty` response and u2g's two `empty`. No `decode_error`s, no
+`raw_error`s — nothing was un-decodable.
+
+`agent` hits in u2's container bytes were `user-agent:` header
+strings — verified benign, unchanged.
+
+Interpretation bound (still applies): zero hits at all three layers =
+"the successfully decoded request/response content of these captured
+flows contains none of the markers". It still cannot exclude traffic
+outside the proxy path, events never enqueued, or server-side use.

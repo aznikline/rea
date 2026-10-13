@@ -35,18 +35,20 @@ a loaded workbench (83 lines). Detector artifact, recorded as
 `workbench_readiness_not_reached` — readiness *flag* is a harness
 signal, not a target property.
 
-### U2 / U2g Agent-panel caveat
+### U2 / U2g — Agent panel status: **ACTION_UNVERIFIED**
 
 - U2 (SSH launch): window never appeared on-screen in the console
   session; `CGEventPostToPid` Cmd+I delivered but panel-open state is
-  **unverified**; injection also landed near window end.
+  unverified; injection also landed near window end.
 - U2g (asuser-501 launch): real L0 window on-screen
   (`CGWindowList: Cursor L0 0,25 1024x686`), app activated
   (`activateWithOptions=1`), Cmd+I injected twice within the window.
-  Panel-open state still **not screenshot-verified** — `screencapture`
-  lacks Screen Recording TCC so captures show wallpaper only. No
-  login prompt or SecurityAgent dialog was listed on-screen during or
-  after injection.
+  Panel-open state is **not verified** — `screencapture` lacks Screen
+  Recording TCC so captures return wallpaper only, and no
+  composer/panel log delta was produced. "Window on screen" + "key
+  event posted" + "no separate login window" do NOT jointly prove the
+  Agent panel opened. U2 is recorded as attempted-but-unverified, not
+  as a completed Agent-panel control.
 
 ## Findings
 
@@ -64,19 +66,28 @@ signal, not a target property.
 - renderer.log shows `cursor_agent_host gate is disabled`,
   `agentHostEnabled=false`, `PushRequestContextService ... disabled`.
 
-### Network observations
+### Network observations (formal-decode revision)
 
-- Proxy-captured target flows: U0 `api2.cursor.sh /extensions-control`
-  ×1; U1 same ×1 (+5 system flows); U2 same ×1; U2g **none** (netlog
-  shows an api2 connection attempt, no completed flow).
-- Zero canary/run-id/`ex_hs2`/`api3.cursor.sh`/`/tev1/` bytes in any
-  capture (container-byte search, receipt in `network/`).
-- lsof cross-check: zero direct-egress TCP and zero UDP sockets owned
-  by Cursor in any sample — the only persistent socket is the loopback
-  connection to the proxy. QUIC bypass not observed (bounded by 5 s
-  cadence).
-- NetLog (truncated at last flush ≈ launch phase): api2.cursor.sh
-  only; every remote attempt resolves to `127.0.0.1:8888`.
+All captures re-decoded with mitmproxy 12.2.3 official decoder
+(`mitmdump -nr` + `tools/decode-dump.py`); zero FlowReadExceptions,
+all records type `http`, no WS/TCP/UDP/DNS records.
+
+- Decoded target flows: U0 `api2.cursor.sh /extensions-control` ×1
+  (200); U1 same ×1 (+6 system flows); U2 same ×1; U2g **zero
+  completed Cursor flows** (netlog shows an api2 connection setup
+  toward the proxy that produced no flow).
+- Canary/marker search now covers three layers — container bytes,
+  `raw_content`, and content-decoded bodies — **zero hits at all
+  layers in all captures**. Earlier claim that container-byte search
+  is "stronger" is withdrawn; see `network/canary-search-receipt.md`.
+- lsof cross-check: in the sampled Cursor-named process socket rows,
+  zero direct-egress TCP and zero UDP sockets; the only persistent
+  socket is loopback→proxy. This is a *sampled* bound (5 s cadence,
+  Cursor-name match) — it supports "no bypass observed in sampled
+  sockets", not "all outbound paths verified negative".
+- NetLog is truncated at last flush (≈ launch phase only — SIGKILL
+  prevents graceful flush); it corroborates early-window api2-only
+  behavior, nothing later.
 
 ### Static chain (workbench.desktop.main.js + main.js @3.24.12)
 
@@ -105,11 +116,16 @@ is not demonstrated**.
 
 ## R3.5 correction carried into this round
 
-- R0 manifest wall-clock 6010.8 s was inflated by guest suspend/resume
-  (flow-timestamp gaps 06:31→07:15→07:47→08:09 UTC); active runtime
-  ≈ standard 240 s. R0 excluded from equal-window comparison.
-- `capture-r0.mitm` is mixed-provenance (aborted r0 + r0b); its two
-  api2 flows belong to the aborted attempt.
+- R0 manifest wall-clock 6010.8 s shows unexplained inflation.
+  Decoded flow gaps (06:31→07:15→07:47→08:09 UTC) are consistent
+  with guest suspend/resume, but **no Tart/guest lifecycle record
+  proves suspend** — so neither "suspend proven" nor "active ≈240 s"
+  is claimed. R0 stays excluded from equal-window comparison on
+  unexplainable-window grounds alone.
+- `capture-r0.mitm` is mixed-provenance (aborted r0 + r0b). Decoded
+  attribution: api2 flow @06:22:20 = aborted r0; api2 flow @06:29:55
+  = r0b's launch window (correcting the earlier "r0b produced no
+  Cursor flow" statement).
 - `ELIGIBLE_FOR_COMPARISON` scoped to packaged-observation methodology,
   not full outbound coverage.
 

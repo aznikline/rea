@@ -96,19 +96,18 @@ exclude:
 ## Corrections (R3.6 review follow-up)
 
 **R0 window is NOT a ~240s observation.** Its manifest records
-`total_runtime_s=6015.9`, `observed_window_s=6010.8`. Flow timestamps in
-`capture-r0.mitm` show the guest was suspended repeatedly between
-06:31–08:09 UTC (resume chunks at 07:15, 07:47, 08:09; wall-clock vs
-kernel-time divergence inflated the recorded window). The runner's
-`sleep` counts guest-kernel time, so r0b's *active* runtime was the
-standard ~240s spread across suspend/resume — the 6010s figure cannot
-be read as ~100 minutes of continuous observation and R0 is excluded
-from equal-window comparison.
+`total_runtime_s=6015.9`, `observed_window_s=6010.8`. Decoded flow
+timestamps in `capture-r0.mitm` show gaps at 06:31→07:15→07:47→08:09
+UTC. Guest suspend/resume is a *candidate* explanation (kernel-time
+`sleep` freezes while wall-clock advances), but no lifecycle record
+proves it — so "active ≈240 s" is also unconfirmed. R0 is excluded
+from equal-window comparison purely on unexplainable-window grounds.
 
-**capture-r0.mitm attribution.** Both `api2.cursor.sh` flows (first at
-06:22:16) belong to the *aborted* first R0 attempt, not r0b. During
-r0b's own launch window (06:29–06:31) no Cursor-bound flow was
-captured at all.
+**capture-r0.mitm attribution (formal decode, mitmproxy 12.2.3).**
+28 HTTP records. `api2.cursor.sh/extensions-control` appears twice:
+06:22:20 (aborted first R0) and 06:29:55 (inside r0b's launch window —
+r0b *did* emit one captured Cursor request). Three records carry
+`peer closed connection` errors; none are silently omitted.
 
 **Mechanism framing corrected.** `files_scanned=0, missing_dir=true`
 proves only that the `cursor-sentry-events.log` source does not exist
