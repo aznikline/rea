@@ -10,7 +10,7 @@ review tool state, not independent reviewer acceptance.
 
 | PR | Branch | HEAD at handoff | Current remote HEAD | Delta |
 |---|---|---|---|---|
-| #2465 | split/intrinsic-boundaries | `facc3547` | `c886eec6c` | maintainer fixes `ef8eb3ab1`, `e1253bede`, `e88b95608`, `e7dbe2492` + main merges + local `9ca6e6297` |
+| #2465 | split/intrinsic-boundaries | `facc3547` | `97fa50927` | maintainer fixes `ef8eb3ab1`, `e1253bede`, `e88b95608`, `e7dbe2492` + main merges + local `9ca6e6297`, `638a7f1ec`, `97fa50927` |
 | #2263 | fix/webmcp-annotations | `273286fe` | `092a86cb4` | maintainer `cf136ee3b` + main merges + local `606e092a0`, `092a86cb4` |
 | #2262 | fix/inspect-signature-non-macho | `f6f4cd79` | `f6f4cd79` | unchanged |
 
@@ -34,9 +34,9 @@ review tool state, not independent reviewer acceptance.
 | 4260436918 | bound-member alias | no | maintainer commits | source inspection | resolved, outdated |
 | **4261655637** | **unresolved merge-conflict markers committed by `d341d2eae` into `tests/process-global/cleanLinuxHopperRuntime.test.ts`** | no — fixed | `9ca6e6297` (local: kept incoming `assertCleanLinuxHopperRuntime` call, removed markers; also TS7022 `callable` annotation + lint-limit describe split) | `npm run check:fast` green at `9ca6e6297`; markers verified absent at merged `c886eec6c` | resolved, outdated (reply 4261760822) |
 | 4261712627 | bound-invocation semantics (first wave) | no | maintainer commits | source inspection | resolved, outdated |
-| **4262400691** | **P1: bound-alias write dropped — `invoke.call(change,...)` where `invoke = change.call`** | **YES — confirmed** | none yet | CI run `38447900942` on `c886eec6c`: this exact case fails in "Test shard (3/6)" and "Portable tests"; reproduces on clean local checkout (1 failed / 201 passed) | **unresolved** (reply 4266397011) |
-| **4262492100** | **P1: canonical-depth miss for nested invocation reads (`ODP.apply.apply` after `Object.assign(FP.apply,{apply:poison})`)** | **not reproduced** | none | constructed counterexample per description returns correct `[]` at `c886eec6c`; equal-length cover-depth concern may hold internally but no observable misbehavior found | **unresolved** (reply 4266397717, honest non-confirmation) |
-| **4262677516** | **P1: unknown argument-list suffix marked as fully-applied prefix (`make.apply(null,args)` with identifier args)** | **YES — confirmed** | none yet | counterexample added to the same it.each fails identically at `c886eec6c` (verification only, not committed) | **unresolved** (reply 4266397548) |
+| **4262400691** | **P1: bound-alias write dropped — `invoke.call(change,...)` where `invoke = change.call`** | no — fixed | `638a7f1ec` (local): `capturedInvocationMember` follows the alias initializer's member read; read checked for contamination at its capture offset | CI run `38447900942` confirmed failure at `c886eec6c`; case now committed as regression test and passes at `638a7f1ec`; JS domain suite 1329/1329 | unresolved at fetch; fix replies 4266397011 + 4271064964 |
+| **4262492100** | **P1: canonical-depth miss for nested invocation reads (`ODP.apply.apply` after `Object.assign(FP.apply,{apply:poison})`)** | no — fixed | `97fa50927` (local): `intrinsicReadChanged` checks a nested canonical read `[i,F,p,<prevInvMember>,method]`, covering equal-length `mutate-object` writes on `Function.prototype.*` | first counterexample (free `metadata`) did not reproduce; sharpened with provably-fresh `const metadata = {}` → failed at `c886eec6c`, passes at `97fa50927`; committed regression test; JS suite 1330/1330 | unresolved at fetch; correction reply 4271092502 after initial non-confirmation |
+| **4262677516** | **P1: unknown argument-list suffix marked as fully-applied prefix (`make.apply(null,args)` with identifier args)** | no — fixed | `638a7f1ec` (local): unknown `arguments_` now propagates instead of merging into `[]` | constructed counterexample reproduced failure at `c886eec6c`; case committed as regression test, passes at `638a7f1ec`; JS domain suite 1329/1329 | unresolved at fetch; fix replies 4266397548 + 4271065466 |
 
 ### Notes
 
@@ -46,15 +46,16 @@ review tool state, not independent reviewer acceptance.
   `evaluationClock` — strictly better than a source-offset mask. A local
   alternative implementation (`a7b27a5db`, range-mask approach) was abandoned;
   do not reuse it.
-- All three open P1s sit in `javascriptIntrinsicInvocation.ts` /
-  `javascriptModuleInterop.ts` bound-invocation logic — the file the maintainer
-  is actively rewriting. Fixes deferred to the maintainer line to avoid
-  duplicating in-flight work (the destructuring collision already demonstrated
-  this).
+- All three second-wave bound-invocation P1s were fixed locally after remote
+  activity paused: `638a7f1ec` (`capturedInvocationMember` alias substitution
+  + unknown-argument propagation) and `97fa50927` (nested invocation-member
+  read at canonical depth). Note: `4262492100` needed a provably-fresh
+  `metadata` to reproduce — the free-identifier variant is suppressed by a
+  different path and is not a valid counterexample.
 - CI at `c886eec6c`: run `38447900942` = **failure** — the only failing test is
   the `invoke.call(change,...)` bound-alias case (4262400691); "CI required",
   "Portable tests", "Test shard (3/6)" jobs failed on it. All other jobs pass or
-  skip as usual.
+  skip as usual. CI on `97fa50927` was not started at ledger-update time.
 - Abandoned local work: `a7b27a5db` (destructuring range-mask) — superseded,
   not on the remote branch.
 
@@ -100,10 +101,9 @@ review tool state, not independent reviewer acceptance.
 
 ## Outstanding at ledger close
 
-1. #2465: three open bound-invocation P1s (`4262400691` confirmed,
-   `4262677516` confirmed, `4262492100` not reproduced) — no fix commit at
-   `c886eec6c`; CI run `38447900942` red on the first one. Maintainer is
-   actively iterating this file.
+1. #2465: all three second-wave P1s fixed (`638a7f1ec`, `97fa50927`); each has
+   a committed regression test and a reply with verdict + SHA + validation.
+   Awaiting reviewer thread resolution and CI on `97fa50927`.
 2. #2263: thread `4262599602` fix landed in `092a86cb4` and is awaiting thread
    resolution / CI on the new head.
 3. #2262: green at `f6f4cd79`; awaiting maintainer merge decision only.
