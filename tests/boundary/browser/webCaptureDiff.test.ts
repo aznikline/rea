@@ -23,7 +23,7 @@ afterEach(async () => {
   await Promise.all(browsers.splice(0).map(async (browser) => browser.close()));
 });
 
-describe("web capture diff", () => {
+describe("web capture diff WebMCP consequential uncertainty", () => {
   it.each([
     { missing: "before", changed: false, expected: "unknown" },
     { missing: "after", changed: false, expected: "unknown" },
@@ -79,7 +79,9 @@ describe("web capture diff", () => {
         });
     },
   );
+});
 
+describe("web capture diff", () => {
   it("reports stable observed changes while preserving unknown dimensions", async () => {
     const browser = await startFakeCdpBrowser();
     browsers.push(browser);
