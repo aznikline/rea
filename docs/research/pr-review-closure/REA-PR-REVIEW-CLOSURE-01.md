@@ -10,7 +10,7 @@ review tool state, not independent reviewer acceptance.
 
 | PR | Branch | HEAD at handoff | Current remote HEAD | Delta |
 |---|---|---|---|---|
-| #2465 | split/intrinsic-boundaries | `facc3547` | `02ef51ab2` | maintainer fixes `ef8eb3ab1`, `e1253bede`, `e88b95608`, `e7dbe2492` + main merges + local `9ca6e6297`, `638a7f1ec`, `97fa50927`, `a13b93545` + merge `02ef51ab2` of `origin/main` `4135c911d` |
+| #2465 | split/intrinsic-boundaries | `facc3547` | `02ef51ab2` | maintainer fixes `ef8eb3ab1`, `e1253bede`, `e88b95608`, `e7dbe2492` + main merges + local `9ca6e6297`, `638a7f1ec`, `97fa50927`, `a13b93545` + merge `02ef51ab2` of `origin/main` `4135c911d` + `f3765f117` format fix |
 | #2263 | fix/webmcp-annotations | `273286fe` | `092a86cb4` (CLOSED, unmerged) | maintainer `cf136ee3b` + main merges + local `606e092a0`, `092a86cb4`; production absorbed upstream by `f6905719c` |
 | (follow-up) | test/webmcp-invalid-annotations | — | `74e2dc324` | cherry-pick `092a86cb4` → `ff873c296` onto `4135c911d` + lint split `74e2dc324`; draft PR #3837 |
 | #2262 | fix/inspect-signature-non-macho | `f6f4cd79` | **MERGED** `5eb296649` | upstream merge commit `5eb296649d2cd53b0bb74df7b3d8081e964e027d` |
@@ -69,7 +69,7 @@ review tool state, not independent reviewer acceptance.
   `[null]` encoding, and updated `invocationMemberWriteCovers` so a
   `mutate-object` write is scoped by its trailing `null` segment rather than a
   length-minus-one rule. Post-merge: 1738/1738 JS domain tests, `check:fast`
-  green; `mergeable` now `MERGEABLE` (readback).
+  green; ``mergeable` readback MERGEABLE at `02ef51ab2`; `f3765f117` fixes a `format:check` failure (oxfmt on merged `fridaLifecycleMcp.test.ts`).
 - **Author declaration: `HUMAN_ATTESTATION_REQUIRED`.** The
   `Validate author declaration` check (workflow `pr-readiness.yml`, script
   `scripts/ci/pr-readiness.mjs`) reads the PR **body**: exactly one
@@ -138,13 +138,13 @@ review tool state, not independent reviewer acceptance.
 
 ## Outstanding at ledger close
 
-1. #2465 (`02ef51ab2`): all second-wave P1s + new P1 `4271146564` fixed
+1. #2465 (`f3765f117`): all second-wave P1s + new P1 `4271146564` fixed
    (`638a7f1ec`, `97fa50927`, `a13b93545`) with committed regression tests and
    evidence replies; main `4135c911d` merged in (`02ef51ab2`), `mergeable`
    readback MERGEABLE. Remaining blocker: **Author readiness —
    `HUMAN_ATTESTATION_REQUIRED`** (skeleton added to PR body; human owner must
    fill `Human owner: @handle` and check the three declarations). Awaiting
-   reviewer thread resolution and CI on `02ef51ab2`.
+   reviewer thread resolution and CI on `f3765f117`.
 2. #2263: closed unmerged; production absorbed upstream (`f6905719c`).
    Remaining test coverage carried by draft PR #3837 (branch
    `test/webmcp-invalid-annotations` @ `74e2dc324`).
