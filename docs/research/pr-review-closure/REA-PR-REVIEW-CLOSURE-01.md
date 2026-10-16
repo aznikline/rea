@@ -10,7 +10,7 @@ review tool state, not independent reviewer acceptance.
 
 | PR | Branch | HEAD at handoff | Current remote HEAD | Delta |
 |---|---|---|---|---|
-| #2465 | split/intrinsic-boundaries | `facc3547` | `8e0853a84` | maintainer fixes `ef8eb3ab1`, `e1253bede`, `e88b95608`, `e7dbe2492` + main merges + local `9ca6e6297`, `638a7f1ec`, `97fa50927`, `a13b93545` + merge `02ef51ab2` of `origin/main` `4135c911d` + `f3765f117` format fix + `1a866d496` (alias-write identity) + `025187d94` (destructured write context) + `a79c205a8` (captured-member owner validation + transitive aliases) + `989908c78` (replaced-member calls stay opaque) + `740977a3a` (wrapped default write timing) + `dbb05f06d` (Reflect.apply direct targets) + `ca1e2001a` (sequence-tail aliases) + `8e0853a84` (owner-key captured-member model: destructured projections, nested owners, bare-call opaque) |
+| #2465 | split/intrinsic-boundaries | `facc3547` | `21dfa5997` | maintainer fixes `ef8eb3ab1`, `e1253bede`, `e88b95608`, `e7dbe2492` + main merges + local `9ca6e6297`, `638a7f1ec`, `97fa50927`, `a13b93545` + merge `02ef51ab2` of `origin/main` `4135c911d` + `f3765f117` format fix + `1a866d496` (alias-write identity) + `025187d94` (destructured write context) + `a79c205a8` (captured-member owner validation + transitive aliases) + `989908c78` (replaced-member calls stay opaque) + `740977a3a` (wrapped default write timing) + `dbb05f06d` (Reflect.apply direct targets) + `ca1e2001a` (sequence-tail aliases) + `8e0853a84` (owner-key captured-member model) + `21dfa5997` (explicit-receiver preservation + destructured-read timing + shared member path helper) |
 | #2263 | fix/webmcp-annotations | `273286fe` | `092a86cb4` (CLOSED, unmerged) | maintainer `cf136ee3b` + main merges + local `606e092a0`, `092a86cb4`; production absorbed upstream by `f6905719c` |
 | #3837 | test/webmcp-invalid-annotations | — | `bcb92ebe3` | cherry-pick `092a86cb4` → `ff873c296` onto `4135c911d` + lint split `74e2dc324` + `bcb92ebe3` (own-property annotation override + null case) |
 | #2262 | fix/inspect-signature-non-macho | `f6f4cd79` | **MERGED** `5eb296649` | upstream merge commit `5eb296649d2cd53b0bb74df7b3d8081e964e027d` |
@@ -51,6 +51,8 @@ review tool state, not independent reviewer acceptance.
 | **4290159609** | **P1: bare call of a replaced captured member dropped — `invoke()` after `change.call = () => {Object.create = …}` ran the replacement but was classified `undefined` (not `opaque`)** | no — fixed | `8e0853a84` (local): `CapturedInvocationMember` remodeled as `{owner, key, at}` (+ `replaced` tag); the resolver substitutes the captured owner and processes the captured key as a virtual member read — a replaced captured callee stays `opaque` with a retained `["intrinsic"]` effect even without an explicit receiver | reproduced at `ca1e2001a` — bare call dropped entirely → fixed: `opaque` + `["intrinsic"]` effect, no confirmed `[i,O,create]`; 53/53 capture, 1753/1753 JS domain, `check:fast` + `oxfmt` green | unresolved; fix reply 4290295913 |
 | **4290159616** | **P1: destructured invocation-member capture rejected — `const {call: invoke} = change` carries projection `["call"]`, which the zero-projection guard refused** | no — fixed | `8e0853a84` (local): exactly one static `call`/`apply`/`bind` projection resolves to the canonical member on the projected owner; the early `projection.length !== 0` rejection removed in favor of per-shape handling | reproduced at `ca1e2001a` — invocation unresolved → fixed: `known` `defineProperty` + `[i,O,create]`; 53/53 capture, 1753/1753 JS domain | unresolved; fix reply 4290296697 |
 | **4290159619** | **P1: nested captured owner not provable — `const outer = invoke.call` where `invoke = change.call` needs the owner resolved through the captured-member path itself** | no — fixed | `8e0853a84` (local): `capturedInvocationMember` recurses (depth-bounded) so a captured member is itself a provable owner; the resolver's virtual-member view lets the substituted owner process the captured key as one more call level | reproduced at `ca1e2001a` — `outer.call(invoke, change, …)` unresolved → fixed: `known` `defineProperty` + `[i,O,create]`; 53/53 capture, 1753/1753 JS domain | unresolved; fix reply 4290297488 |
+| **4290325648** | **P1: explicit receiver ignored under captured member — `Reflect.apply(invoke.call, noop, […])` substituted `captured.owner` (`change`) as callable, claiming a `Object.create` write that calls `noop` instead** | no — fixed | `21dfa5997` (local): the member call/apply branch keeps `callable = explicitReceiver ? receiver : memberObject` — owner substitution now applies only to the non-explicit path, where the alias identifier re-enters captured resolution anyway | reproduced at `8e0853a84` — `[i,O,create]` wrongly retained → fixed: no confirmed write; 55/55 capture, 1755/1755 JS domain | unresolved; fix reply 4290463430 |
+| **4290325658** | **P1: destructured capture checks the member at the owner's earlier capture — `at = initializer.node` is the RHS identifier, which `intrinsicReadChanged` follows back to the bind call, missing `change.call = …` between bind and destructuring** | no — fixed | `21dfa5997` (local): projection captures run the slot write query inline at the destructuring evaluation offset (`writes` + `invocationMemberWriteCovers`, same predicate shape as the member branch incl. canonical + nested paths) | reproduced at `8e0853a84` — replaced `change.call` still yielded intact capture → `known` claimed → fixed: `replaced` → `opaque`, no `[i,O,create]`; 55/55 capture, 1755/1755 JS domain | unresolved; fix reply 4290463684 |
 
 ### Notes
 
@@ -166,20 +168,24 @@ review tool state, not independent reviewer acceptance.
 
 ## Outstanding at ledger close
 
-1. #2465 (`8e0853a84`): sixth-wave threads — `4290159609` (bare replaced
-   captured call → opaque), `4290159616` (destructured `call`/`apply`/`bind`
-   projection capture), `4290159619` (nested captured-owner recursion) all
-   fixed in `8e0853a84` (owner-key captured-member model + virtual-member
-   resolver view) and replied; awaiting reviewer. Fifth wave: `4289940732`
-   resolved; `4290002429`, `4290002438`, `4290078506` fixed and replied.
-   `4280540503`/`4280540514` still listed unresolved despite fix replies;
-   `4262492100`/`4262677516` still open with re-review requested.
-   `mergeable_state` readback: `blocked` (Author readiness — declarations are
-   placeholders; CI running on `8e0853a84`: 2 success, 5+ in progress at
-   ledger time). Note: `a79c205a8` "Source tests" run `38834492640` failed on
-   `PlaywrightBrowserScenarioProvider` request-cancellation
-   (`AnalysisCancelledError`) — unrelated flaky browser test, not the
-   intrinsic-invocation change.
+1. #2465 (`21dfa5997`): seventh-wave threads — `4290325648` (explicit
+   receiver ignored under captured member) and `4290325658` (destructured
+   read checked at owner initializer, not destructuring) both fixed in
+   `21dfa5997` and replied; awaiting reviewer. Sixth wave `4290159609` /
+   `4290159616` / `4290159619` fixed in `8e0853a84`, still listed unresolved.
+   `4280540503`/`4280540514`, `4290002429`/`4290002438`/`4290078506`,
+   `4262492100`/`4262677516` likewise unresolved with fixes in place.
+   `mergeable_state` readback: `blocked` (Author readiness placeholders;
+   CI re-running on `21dfa5997`).
+   CI on `8e0853a84` (run `38841115324`): Static checks failed on `knip` —
+   the `8e0853a84` refactor left `intrinsicInvocationMemberPath` an unused
+   export; fixed in `21dfa5997` by reworking it to a key-parameterized
+   helper shared by all canonical member-path sites. Test failures in the
+   same run are unrelated flakes: Source tests = `PlaywrightBrowserScenarioProvider`
+   cancellation timing (`AnalysisCancelledError`, same flake as `a79c205a8`
+   run `38834492640`); Test shard (2/5) = `browserScenarioProbeLifecycle`
+   shared-provider discovery-probe assertion — no intrinsic-invocation test
+   failed.
 2. #3837 (`bcb92ebe3`): P2 `4279727743` fixed (`Object.hasOwn` override +
    null case) and the thread is **resolved**; `mergeable_state` `clean`.
    Same `HUMAN_ATTESTATION_REQUIRED` on author readiness.
