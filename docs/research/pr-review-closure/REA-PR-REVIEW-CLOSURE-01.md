@@ -53,6 +53,12 @@ review tool state, not independent reviewer acceptance.
 | **4290159619** | **P1: nested captured owner not provable — `const outer = invoke.call` where `invoke = change.call` needs the owner resolved through the captured-member path itself** | no — fixed | `8e0853a84` (local): `capturedInvocationMember` recurses (depth-bounded) so a captured member is itself a provable owner; the resolver's virtual-member view lets the substituted owner process the captured key as one more call level | reproduced at `ca1e2001a` — `outer.call(invoke, change, …)` unresolved → fixed: `known` `defineProperty` + `[i,O,create]`; 53/53 capture, 1753/1753 JS domain | unresolved; fix reply 4290297488 |
 | **4290325648** | **P1: explicit receiver ignored under captured member — `Reflect.apply(invoke.call, noop, […])` substituted `captured.owner` (`change`) as callable, claiming a `Object.create` write that calls `noop` instead** | no — fixed | `21dfa5997` (local): the member call/apply branch keeps `callable = explicitReceiver ? receiver : memberObject` — owner substitution now applies only to the non-explicit path, where the alias identifier re-enters captured resolution anyway | reproduced at `8e0853a84` — `[i,O,create]` wrongly retained → fixed: no confirmed write; 55/55 capture, 1755/1755 JS domain | unresolved; fix reply 4290463430 |
 | **4290325658** | **P1: destructured capture checks the member at the owner's earlier capture — `at = initializer.node` is the RHS identifier, which `intrinsicReadChanged` follows back to the bind call, missing `change.call = …` between bind and destructuring** | no — fixed | `21dfa5997` (local): projection captures run the slot write query inline at the destructuring evaluation offset (`writes` + `invocationMemberWriteCovers`, same predicate shape as the member branch incl. canonical + nested paths) | reproduced at `8e0853a84` — replaced `change.call` still yielded intact capture → `known` claimed → fixed: `replaced` → `opaque`, no `[i,O,create]`; 55/55 capture, 1755/1755 JS domain | unresolved; fix reply 4290463684 |
+| **4290355683** | **P1: write through an invocation-member value not canonicalized — `change.call.call = noop` recorded `[i,O,defineProperty,call,call]`, so the call-site re-read of `[i,F,p,call,call]` missed the overwrite** | no — fixed | `111881cab` (local): the origin treats a member expression's value through `capturedInvocationMember` — intact → canonical `[i,F,p,<key>]` identity, `replaced` → no provable identity; `retainTarget`'s object identity now matches the read side | reproduced at `21dfa5997` — write landed on `[i,O,dP,call,call]`, later call stayed `known` → fixed: `[i,F,p,call,call]` retained, call `opaque`; 61/61 capture, 1761/1761 JS domain | unresolved; fix reply 4291062338 |
+| **4290355688** | **P1: captured `bind` member dropped — `rebinder = change.bind; rebinder.call(change, …)` returned `undefined`, dropping the bound-callable continuation** | no — fixed | `111881cab` (local): `method === "bind"` unified — virtual (captured) and direct `x.bind` on a provable owner produce a known `[i,F,p,bind]` invocation with the bind target as `receiver`; replaced owner slots and a replaced `FP.bind` stay `opaque`; unprovable direct owners keep the prior unresolved classification | reproduced at `21dfa5997` — bound chain unresolved → fixed: `changed({value})` records `[i,O,create]`; 61/61 capture, 1761/1761 JS domain | unresolved; fix reply 4291062586 |
+| **4290355695** | **P1: sequence-tail member owner not unwrapped — `(0, change).call(null, …)` never resolved the bound callable** | no — fixed | `111881cab` (local): `SequenceExpression` owners peeled to their tail in the resolver's member-object position and in `capturedInvocationMember` inputs | reproduced at `21dfa5997` — invocation unresolved → fixed: `known` `defineProperty` + `[i,O,create]`; 61/61 capture, 1761/1761 JS domain | unresolved; fix reply 4291062729 |
+| **4290355697** | **P1: legitimate re-entry rejected by node-only cycle detection — `invoke.call(invoke, change, …)` revisits `invoke` under a different invocation state** | no — fixed | `111881cab` (local): `visited` keys on (callee id, receiver id, explicit-receiver flag, argument count, virtual member key@read node) instead of node identity; same-state cycles still fail closed | reproduced at `21dfa5997` — invocation `undefined`, write missing → fixed: `known` + `[i,O,create]`; 61/61 capture, 1761/1761 JS domain | unresolved; fix reply 4291062886 |
+| **4290576830** | **P1: nested direct invocation member dropped — `change.call.call(change, …)` had `memberObject` a member expression that `memberRead` refused (identifiers only)** | no — fixed | `111881cab` (local): `capturedInvocationMember` accepts member expressions — owner/key read directly off the node, owner resolved through the same provable-callable chain (bound, intrinsic, or captured) | reproduced at `21dfa5997` — no effect recorded → fixed: `known` + `[i,O,create]`; 61/61 capture, 1761/1761 JS domain | unresolved; fix reply 4291063037 |
+| **4290576840** | **P1: destructured capture timestamp at RHS owner, not the projected property read — `const {missing: x = (change.call = noop), call: invoke} = change` missed the default's write** | no — fixed | `111881cab` (local): `projectedCaptureAt` locates the `ObjectProperty` leaf for the projected key inside the declarator's `ObjectPattern`; `at` = that leaf, so the inline slot-write check evaluates at the property-read offset | reproduced at `21dfa5997` — replaced member captured intact → `known` claimed → fixed: `replaced` → `opaque`, no `[i,O,create]`; 61/61 capture, 1761/1761 JS domain | unresolved; fix reply 4291063182 |
 
 ### Notes
 
@@ -168,15 +174,17 @@ review tool state, not independent reviewer acceptance.
 
 ## Outstanding at ledger close
 
-1. #2465 (`21dfa5997`): seventh-wave threads — `4290325648` (explicit
-   receiver ignored under captured member) and `4290325658` (destructured
-   read checked at owner initializer, not destructuring) both fixed in
-   `21dfa5997` and replied; awaiting reviewer. Sixth wave `4290159609` /
-   `4290159616` / `4290159619` fixed in `8e0853a84`, still listed unresolved.
+1. #2465 (`111881cab`): eighth wave — six P1s (`4290355683`,
+   `4290355688`, `4290355695`, `4290355697`, `4290576830`, `4290576840`)
+   covering write canonicalization, captured `bind`, sequence owners,
+   state-keyed cycle detection, nested member reads, and destructured
+   read timing — all reproduced at `21dfa5997`, fixed, replied; awaiting
+   reviewer. Seventh-wave `4290325648`/`4290325658` fixed in `21dfa5997`;
+   sixth-wave `4290159609`/`4290159616`/`4290159619` in `8e0853a84`;
    `4280540503`/`4280540514`, `4290002429`/`4290002438`/`4290078506`,
    `4262492100`/`4262677516` likewise unresolved with fixes in place.
    `mergeable_state` readback: `blocked` (Author readiness placeholders;
-   CI re-running on `21dfa5997`).
+   CI re-running on `111881cab`).
    CI on `8e0853a84` (run `38841115324`): Static checks failed on `knip` —
    the `8e0853a84` refactor left `intrinsicInvocationMemberPath` an unused
    export; fixed in `21dfa5997` by reworking it to a key-parameterized
