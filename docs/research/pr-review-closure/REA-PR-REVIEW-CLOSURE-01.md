@@ -63,6 +63,8 @@ review tool state, not independent reviewer acceptance.
 | **4291115393** | **P1: same root as `4291090875` — `Reflect.apply(change.bind, noop, [null])` bound `change`, not `noop`; a fake `Object.create` replacement could suppress a valid BrowserWindow** | no — fixed | `2bf3a74e8` (local): shared fix — explicit receiver wins for direct `.bind` member calls; plain `x.bind(…)` still targets the member owner | reproduced at `111881cab` — covered by the same regression test; 63/63 capture, 1763/1763 JS domain | unresolved; fix reply 4291526990 |
 | **4291115399** | **P1: duplicate destructured keys matched by first key — `{call: first, missing: x = (change.call = noop), call: invoke}` positioned `invoke`'s capture at `first`'s earlier read** | no — fixed | `2bf3a74e8` (local): `projectedCaptureAt` selects the leaf carrying the binding's name (later duplicate wins); falls back to the first key match only when no leaf declares the name | reproduced at `111881cab` — replaced member captured intact → `known` claimed → fixed: `opaque`, no `[i,O,create]`; 63/63 capture, 1763/1763 JS domain | unresolved; fix reply 4291527261 |
 | **4291612841** | **P1: replaced state not propagated through nested captures — `change.call = {call: poison}; invoke = change.call; outer = invoke.call; outer()` lost the replaced marker in the recursive owner proof, recording neither call nor effect while `poison` runs** | no — fixed | `efd68b4a3` (local): the recursive `capturedInvocationMember(owner)` result propagates `{replaced: true, path}` instead of being discarded | reproduced at `2bf3a74e8` — invocation unresolved, no effect → fixed: `opaque` at `[i,O,dP,call]` + `["intrinsic"]`; 64/64 capture, 1764/1764 JS domain, `check:fast` green | unresolved; fix reply 4291834601 |
+| **4291952113** | **P1: captured member value through a direct `.bind` — `invoke = change.call; changed = invoke.bind(change, null); changed(…)` reached `resolveBoundIntrinsic`, hit the `!isCallExpression` early return, produced no invocation; the `Object.create` write was dropped and a spurious BrowserWindow finding surfaced** | no — fixed | `c8048a1ec` (local): `resolveBoundIntrinsic` consults `capturedInvocationMember` when a bind chain (`argumentGroups.length > 0` gate) bottoms out on a non-call value — intact capture → `known` `[i,F,p,call]` with accumulated receiver/arguments, replaced → `opaque` at the captured slot | reproduced at `efd68b4a3` — invocation unresolved, write lost → fixed: `known` `[i,O,defineProperty]` + `[i,O,create]` retained; 66/66 capture, 1766/1766 JS domain, `check:fast` + `oxfmt` + `knip` green | unresolved; fix reply 4292278191 |
+| **4291952122** | **P1: multi-segment destructured member capture — `const {call: {call: invoke}} = change` rejected by the `projection.length !== 1` guard; `invoke.call(change, …)` lost its `Object.create` write** | no — fixed | `c8048a1ec` (local): projections whose every segment is `call`/`apply`/`bind` are accepted (each read lands on a Function.prototype member whose own invocation members are canonical); `projectedCaptureAt` walks nested patterns per level with binding-name matching; every projection level's slot is checked at the destructuring offset (`[ownerPath,call]`, `[i,F,p,call,call]`) | reproduced at `efd68b4a3` — invocation unresolved, write lost → fixed: `known` + `[i,O,create]`; 66/66 capture, 1766/1766 JS domain | unresolved; fix reply 4292278508 |
 
 ### Notes
 
@@ -178,11 +180,13 @@ review tool state, not independent reviewer acceptance.
 
 ## Outstanding at ledger close
 
-1. #2465 (`efd68b4a3`): tenth wave — P1 `4291612841` (replaced state not
-   propagated through nested captured owners) fixed and replied;
-   awaiting reviewer. `4291090875` resolved by reviewer. Ninth wave
-   `4291090875`/`4291115393`/`4291115399` fixed in `2bf3a74e8`; earlier
-   waves as listed above.
+1. #2465 (`c8048a1ec`): eleventh wave — P1 `4291952113` (captured member
+   through direct `.bind` unresolved, write dropped) and P1 `4291952122`
+   (multi-segment destructured projection rejected) both reproduced at
+   `efd68b4a3`, fixed, and replied; awaiting reviewer. Tenth wave
+   `4291612841` fixed in `efd68b4a3`. `4291090875` resolved by reviewer.
+   Ninth wave `4291090875`/`4291115393`/`4291115399` fixed in `2bf3a74e8`;
+   earlier waves as listed above.
    **CI on `2bf3a74e8`: all lanes green** — 18 success, 16 skipped, 0
    failures (CI required, Portable tests, Source tests, Test shards
    1-5, Static checks, Build, Docs, Greptile).
