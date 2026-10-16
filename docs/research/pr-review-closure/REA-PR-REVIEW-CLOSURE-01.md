@@ -10,7 +10,7 @@ review tool state, not independent reviewer acceptance.
 
 | PR | Branch | HEAD at handoff | Current remote HEAD | Delta |
 |---|---|---|---|---|
-| #2465 | split/intrinsic-boundaries | `facc3547` | `ca1e2001a` | maintainer fixes `ef8eb3ab1`, `e1253bede`, `e88b95608`, `e7dbe2492` + main merges + local `9ca6e6297`, `638a7f1ec`, `97fa50927`, `a13b93545` + merge `02ef51ab2` of `origin/main` `4135c911d` + `f3765f117` format fix + `1a866d496` (alias-write identity) + `025187d94` (destructured write context) + `a79c205a8` (captured-member owner validation + transitive aliases) + `989908c78` (replaced-member calls stay opaque) + `740977a3a` (wrapped default write timing) + `dbb05f06d` (Reflect.apply direct targets) + `ca1e2001a` (sequence-tail aliases) |
+| #2465 | split/intrinsic-boundaries | `facc3547` | `8e0853a84` | maintainer fixes `ef8eb3ab1`, `e1253bede`, `e88b95608`, `e7dbe2492` + main merges + local `9ca6e6297`, `638a7f1ec`, `97fa50927`, `a13b93545` + merge `02ef51ab2` of `origin/main` `4135c911d` + `f3765f117` format fix + `1a866d496` (alias-write identity) + `025187d94` (destructured write context) + `a79c205a8` (captured-member owner validation + transitive aliases) + `989908c78` (replaced-member calls stay opaque) + `740977a3a` (wrapped default write timing) + `dbb05f06d` (Reflect.apply direct targets) + `ca1e2001a` (sequence-tail aliases) + `8e0853a84` (owner-key captured-member model: destructured projections, nested owners, bare-call opaque) |
 | #2263 | fix/webmcp-annotations | `273286fe` | `092a86cb4` (CLOSED, unmerged) | maintainer `cf136ee3b` + main merges + local `606e092a0`, `092a86cb4`; production absorbed upstream by `f6905719c` |
 | #3837 | test/webmcp-invalid-annotations | — | `bcb92ebe3` | cherry-pick `092a86cb4` → `ff873c296` onto `4135c911d` + lint split `74e2dc324` + `bcb92ebe3` (own-property annotation override + null case) |
 | #2262 | fix/inspect-signature-non-macho | `f6f4cd79` | **MERGED** `5eb296649` | upstream merge commit `5eb296649d2cd53b0bb74df7b3d8081e964e027d` |
@@ -48,6 +48,9 @@ review tool state, not independent reviewer acceptance.
 | **4290002429** | **P1: captured member passed directly as `Reflect.apply` target — `Reflect.apply(invoke, change, […])` rewrites the callee to the bare identifier, never consulting `memberRead`, so the real write was lost** | no — fixed | `dbb05f06d` (local): when `boundIntrinsic(callee)` fails and an explicit receiver exists, `memberRead` rewrites the callee to the captured member — the call/apply branch then resolves it like `invoke.call(…)`; bare `invoke(...)` still resolves to nothing; `replaced` → `opaque` | reproduced at `989908c78` — invocation `undefined`, write missing → fixed: `known` `defineProperty` + `[i,O,create]`; replaced-owner variant `opaque` + `["intrinsic"]`; 49/49 capture, 1749/1749 JS domain, `check:fast` green | unresolved; fix reply 4290090315 |
 | **4290002438** | **P2: wrapped pattern writes retained before defaults — `[(change.call as any) = change.call(…)] = []` saw the leaf's parent as `TSAsExpression`, recording the write before the default ran and suppressing a valid window** | no — fixed | `740977a3a` (local): transparent-wrapper exits now own the leaf's timing (outermost wrapper is `AssignmentPattern.left`), the `AssignmentPattern` deferral check unwraps `left`, and the pattern child-order check unwraps too (covers wrapped nested patterns) | reproduced at `989908c78` — `browser_windows` suppressed → fixed: default call stays `known`, fresh-target write retained, window found; 49/49 capture, 1749/1749 JS domain, `check:fast` green | unresolved; fix reply 4290092247 |
 | **4290078506** | **P1: sequence-tailed captured member aliases lost — `const invoke = (0, change.call)` hit the SequenceExpression branch and returned `undefined`, classifying `invoke.call(…)` as neither known nor opaque** | no — fixed | `ca1e2001a` (local): the alias walk peels `SequenceExpression` initializers to their tail (identifier tails continue the alias walk), matching the resolver's sequence-callee handling | reproduced at `dbb05f06d` — invocation `undefined`, write missing → fixed: `known` `defineProperty` + `[i,O,create]`; 50/50 capture, 1750/1750 JS domain, `check:fast` green | unresolved; fix reply 4290104526 |
+| **4290159609** | **P1: bare call of a replaced captured member dropped — `invoke()` after `change.call = () => {Object.create = …}` ran the replacement but was classified `undefined` (not `opaque`)** | no — fixed | `8e0853a84` (local): `CapturedInvocationMember` remodeled as `{owner, key, at}` (+ `replaced` tag); the resolver substitutes the captured owner and processes the captured key as a virtual member read — a replaced captured callee stays `opaque` with a retained `["intrinsic"]` effect even without an explicit receiver | reproduced at `ca1e2001a` — bare call dropped entirely → fixed: `opaque` + `["intrinsic"]` effect, no confirmed `[i,O,create]`; 53/53 capture, 1753/1753 JS domain, `check:fast` + `oxfmt` green | unresolved; fix reply 4290295913 |
+| **4290159616** | **P1: destructured invocation-member capture rejected — `const {call: invoke} = change` carries projection `["call"]`, which the zero-projection guard refused** | no — fixed | `8e0853a84` (local): exactly one static `call`/`apply`/`bind` projection resolves to the canonical member on the projected owner; the early `projection.length !== 0` rejection removed in favor of per-shape handling | reproduced at `ca1e2001a` — invocation unresolved → fixed: `known` `defineProperty` + `[i,O,create]`; 53/53 capture, 1753/1753 JS domain | unresolved; fix reply 4290296697 |
+| **4290159619** | **P1: nested captured owner not provable — `const outer = invoke.call` where `invoke = change.call` needs the owner resolved through the captured-member path itself** | no — fixed | `8e0853a84` (local): `capturedInvocationMember` recurses (depth-bounded) so a captured member is itself a provable owner; the resolver's virtual-member view lets the substituted owner process the captured key as one more call level | reproduced at `ca1e2001a` — `outer.call(invoke, change, …)` unresolved → fixed: `known` `defineProperty` + `[i,O,create]`; 53/53 capture, 1753/1753 JS domain | unresolved; fix reply 4290297488 |
 
 ### Notes
 
@@ -163,18 +166,20 @@ review tool state, not independent reviewer acceptance.
 
 ## Outstanding at ledger close
 
-1. #2465 (`ca1e2001a`): fifth-wave threads — `4289940732` fixed (`989908c78`,
-   tagged intact/replaced verdict) and **resolved**; `4290002429`
-   (`dbb05f06d`, Reflect.apply direct target), `4290002438` (`740977a3a`,
-   wrapped default write timing), `4290078506` (`ca1e2001a`, sequence-tail
-   aliases) fixed and replied, awaiting reviewer. Fourth-wave `4280476067`
-   resolved; `4280540503`/`4280540514` still listed unresolved despite fix
-   replies. `4262492100`/`4262677516` still open with re-review requested.
+1. #2465 (`8e0853a84`): sixth-wave threads — `4290159609` (bare replaced
+   captured call → opaque), `4290159616` (destructured `call`/`apply`/`bind`
+   projection capture), `4290159619` (nested captured-owner recursion) all
+   fixed in `8e0853a84` (owner-key captured-member model + virtual-member
+   resolver view) and replied; awaiting reviewer. Fifth wave: `4289940732`
+   resolved; `4290002429`, `4290002438`, `4290078506` fixed and replied.
+   `4280540503`/`4280540514` still listed unresolved despite fix replies;
+   `4262492100`/`4262677516` still open with re-review requested.
    `mergeable_state` readback: `blocked` (Author readiness — declarations are
-   placeholders; CI re-running on `ca1e2001a`). Note: `a79c205a8` "Source
-   tests" run `38834492640` failed on `PlaywrightBrowserScenarioProvider`
-   request-cancellation (`AnalysisCancelledError`) — unrelated flaky browser
-   test, not the intrinsic-invocation change.
+   placeholders; CI running on `8e0853a84`: 2 success, 5+ in progress at
+   ledger time). Note: `a79c205a8` "Source tests" run `38834492640` failed on
+   `PlaywrightBrowserScenarioProvider` request-cancellation
+   (`AnalysisCancelledError`) — unrelated flaky browser test, not the
+   intrinsic-invocation change.
 2. #3837 (`bcb92ebe3`): P2 `4279727743` fixed (`Object.hasOwn` override +
    null case) and the thread is **resolved**; `mergeable_state` `clean`.
    Same `HUMAN_ATTESTATION_REQUIRED` on author readiness.
