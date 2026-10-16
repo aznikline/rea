@@ -65,6 +65,9 @@ review tool state, not independent reviewer acceptance.
 | **4291612841** | **P1: replaced state not propagated through nested captures — `change.call = {call: poison}; invoke = change.call; outer = invoke.call; outer()` lost the replaced marker in the recursive owner proof, recording neither call nor effect while `poison` runs** | no — fixed | `efd68b4a3` (local): the recursive `capturedInvocationMember(owner)` result propagates `{replaced: true, path}` instead of being discarded | reproduced at `2bf3a74e8` — invocation unresolved, no effect → fixed: `opaque` at `[i,O,dP,call]` + `["intrinsic"]`; 64/64 capture, 1764/1764 JS domain, `check:fast` green | unresolved; fix reply 4291834601 |
 | **4291952113** | **P1: captured member value through a direct `.bind` — `invoke = change.call; changed = invoke.bind(change, null); changed(…)` reached `resolveBoundIntrinsic`, hit the `!isCallExpression` early return, produced no invocation; the `Object.create` write was dropped and a spurious BrowserWindow finding surfaced** | no — fixed | `c8048a1ec` (local): `resolveBoundIntrinsic` consults `capturedInvocationMember` when a bind chain (`argumentGroups.length > 0` gate) bottoms out on a non-call value — intact capture → `known` `[i,F,p,call]` with accumulated receiver/arguments, replaced → `opaque` at the captured slot | reproduced at `efd68b4a3` — invocation unresolved, write lost → fixed: `known` `[i,O,defineProperty]` + `[i,O,create]` retained; 66/66 capture, 1766/1766 JS domain, `check:fast` + `oxfmt` + `knip` green | unresolved; fix reply 4292278191 |
 | **4291952122** | **P1: multi-segment destructured member capture — `const {call: {call: invoke}} = change` rejected by the `projection.length !== 1` guard; `invoke.call(change, …)` lost its `Object.create` write** | no — fixed | `c8048a1ec` (local): projections whose every segment is `call`/`apply`/`bind` are accepted (each read lands on a Function.prototype member whose own invocation members are canonical); `projectedCaptureAt` walks nested patterns per level with binding-name matching; every projection level's slot is checked at the destructuring offset (`[ownerPath,call]`, `[i,F,p,call,call]`) | reproduced at `efd68b4a3` — invocation unresolved, write lost → fixed: `known` + `[i,O,create]`; 66/66 capture, 1766/1766 JS domain | unresolved; fix reply 4292278508 |
+| **4292312211** | **P1: captured-member bind fallback skipped `bindReads` — `invoke.bind = () => () => {}` writes `[i,F,p,call,bind]`; `invoke.bind(change,null)` still modeled as bound FP.call → false `Object.create` claim** | no — fixed | `8fbb88eb2` (local): the fallback runs `bindReads.some(capture => intrinsicReadChanged(capture, [...memberPath,"bind"]))`, covering the own slot `[i,F,p,call,bind]` and canonical `[i,F,p,bind]` | reproduced at `c8048a1ec` — `changed()` resolved `known` → fixed: `opaque`; 69/69 capture, 1769/1769 JS domain | unresolved; fix reply 4292545821 |
+| **4292312222** | **P1: mixed nested captures miss the intermediate canonical slot — `Function.prototype.call = {apply: noop}` before `{call: {apply: invoke}}` was not detected; `[i,F,p,call]` never checked** | no — fixed | `8fbb88eb2` (local): level 0 checks `[ownerPath,seg]` + `[i,F,p,seg]` (+ owner-canonical nested), level i checks `[i,F,p,proj[i-1],proj[i]]` + `[i,F,p,proj[i]]`; replaced → `opaque` at the matched slot | reproduced at `c8048a1ec` — resolved `known`, claimed create → fixed: `opaque` at `[i,F,p,call]`; 69/69, 1769/1769 | unresolved; fix reply 4292546121 |
+| **4292312232** | **P1: all projection levels checked at the final leaf's offset — `change.call = noop` inside an inner default falsely marked the earlier outer read replaced; also the resolver re-checked `[bound.path,method]` on virtual-member iterations (synthetic owner read that does not exist)** | no — fixed | `8fbb88eb2` (local): `projectedCaptureAts` returns per-level timing nodes (intermediate level = property key, which exits before the value subtree's defaults; final = bound leaf); each level's slots evaluated at its own offset; resolver skips `[bound.path,method]` when `virtual !== undefined` in both call/apply and bind branches | reproduced at `c8048a1ec` — `opaque` at `[i,O,dP]` → fixed: `known` `[i,O,defineProperty]`; 69/69, 1769/1769 | unresolved; fix reply 4292546419 |
 
 ### Notes
 
@@ -180,11 +183,18 @@ review tool state, not independent reviewer acceptance.
 
 ## Outstanding at ledger close
 
-1. #2465 (`c8048a1ec`): eleventh wave — P1 `4291952113` (captured member
-   through direct `.bind` unresolved, write dropped) and P1 `4291952122`
-   (multi-segment destructured projection rejected) both reproduced at
-   `efd68b4a3`, fixed, and replied; awaiting reviewer. Tenth wave
-   `4291612841` fixed in `efd68b4a3`. `4291090875` resolved by reviewer.
+1. #2465 (`8fbb88eb2`): twelfth wave — P1 `4292312211` (bindReads skipped
+   in captured-member bind fallback), P1 `4292312222` (intermediate
+   canonical member slot unchecked), P1 `4292312232` (all projection
+   levels timed at final leaf + virtual-iteration owner-slot re-check)
+   all reproduced at `c8048a1ec`, fixed, and replied; awaiting reviewer.
+   **CI on `c8048a1ec`: all lanes green** — Build/package, CI required,
+   Classify changes, Conventional PR title, Docs Generation, Greptile,
+   real-javascript-recovery, Native package baseline, Portable tests,
+   Source tests, Static checks, Test shards 1-5 pass; 16 platform lanes
+   skipped.
+   Eleventh wave `4291952113`/`4291952122` fixed in `c8048a1ec`; tenth
+   `4291612841` in `efd68b4a3`. `4291090875` resolved by reviewer.
    Ninth wave `4291090875`/`4291115393`/`4291115399` fixed in `2bf3a74e8`;
    earlier waves as listed above.
    **CI on `2bf3a74e8`: all lanes green** — 18 success, 16 skipped, 0
