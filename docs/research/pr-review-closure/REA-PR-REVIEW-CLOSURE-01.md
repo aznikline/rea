@@ -10,7 +10,7 @@ review tool state, not independent reviewer acceptance.
 
 | PR | Branch | HEAD at handoff | Current remote HEAD | Delta |
 |---|---|---|---|---|
-| #2465 | split/intrinsic-boundaries | `facc3547` | `025187d94` | maintainer fixes `ef8eb3ab1`, `e1253bede`, `e88b95608`, `e7dbe2492` + main merges + local `9ca6e6297`, `638a7f1ec`, `97fa50927`, `a13b93545` + merge `02ef51ab2` of `origin/main` `4135c911d` + `f3765f117` format fix + `1a866d496` (alias-write identity) + `025187d94` (destructured write context) |
+| #2465 | split/intrinsic-boundaries | `facc3547` | `a79c205a8` | maintainer fixes `ef8eb3ab1`, `e1253bede`, `e88b95608`, `e7dbe2492` + main merges + local `9ca6e6297`, `638a7f1ec`, `97fa50927`, `a13b93545` + merge `02ef51ab2` of `origin/main` `4135c911d` + `f3765f117` format fix + `1a866d496` (alias-write identity) + `025187d94` (destructured write context) + `a79c205a8` (captured-member owner validation + transitive aliases) |
 | #2263 | fix/webmcp-annotations | `273286fe` | `092a86cb4` (CLOSED, unmerged) | maintainer `cf136ee3b` + main merges + local `606e092a0`, `092a86cb4`; production absorbed upstream by `f6905719c` |
 | #3837 | test/webmcp-invalid-annotations | — | `bcb92ebe3` | cherry-pick `092a86cb4` → `ff873c296` onto `4135c911d` + lint split `74e2dc324` + `bcb92ebe3` (own-property annotation override + null case) |
 | #2262 | fix/inspect-signature-non-macho | `f6f4cd79` | **MERGED** `5eb296649` | upstream merge commit `5eb296649d2cd53b0bb74df7b3d8081e964e027d` |
@@ -41,6 +41,9 @@ review tool state, not independent reviewer acceptance.
 | **4271146564** | **P1: replaced outer invocation member erased window results — `invoke.call` re-read after `Function.prototype.call.call` replaced** | no — fixed | `a13b93545` (local): after the captured-member contamination check, the call-site read path `["intrinsic","Function","prototype","call",<method>]` (and `.apply` shape) is validated against writes before the callee's evaluation offset → `opaque` when replaced | reproduced via a `collectJavaScriptIdentityWritesSteps`-driven test at `97fa50927` (the write-free `invocationKinds` helper cannot observe read timing — earlier `browser_windows` was indistinguishable because a top-level opaque write also suppresses the finding); contrast set: unchanged `.call` still known+write retained, `.call`/`.apply` replaced → opaque + no `["i","O","create"]` write, argument-side effect retained exactly once; 40/40 capture tests, 1334/1334 JS domain at `a13b93545`, 1738/1738 post-merge `02ef51ab2`; `check:fast` green | resolved (reviewer); fix reply 4278859932 |
 | **4278964125** | **P1: alias writes go missing — `invoke.call = () => {}` where `invoke = change.call` never reaches the captured-member identity** | no — fixed | `1a866d496` (local): shared `intrinsicInvocationMemberPath` (javascriptElectronMemberWrites.ts) computes the canonical `[i,F,p,<member>]` identity for both the resolver's `memberPath` and the new `capturedInvocationMemberPath` write-side fallback (javascriptModuleInterop.ts + semanticAnalysis origin) | reproduced at `f3765f117` — write dropped (no `[i,F,p,call,call]` in retained writes) → fixed: alias write lands on `[i,F,p,call,call]`/`[i,F,p,call,apply]`, the same slot as `Function.prototype.call.<m>`, invocation → opaque, no `["i","O","create"]`; unchanged-member control still known+write retained; 42/42 capture tests, 1742/1742 JS domain, `check:fast` + `oxfmt --check` green | unresolved; fix reply 4280459628 |
 | **4278964129** | **P1: destructured write through reassigned alias loses assignment context — `[alias.URL] = […]` after `alias = {}` polluted `["global","URL"]`, hiding the Worker specifier** | no — fixed | `025187d94` (local): `retainTarget(leaf, effect, context)` — leaf remains the effect (per-leaf timing preserved) while the enclosing write site (assignment expr / for-of / for-in, mapped per leaf at pattern entry) is passed to `origin` as `writeSite`; `semanticMutationInitializers` now positions `for-in` like `for-of` | reproduced at `f3765f117` — Worker specifier `null` instead of `"./worker.js"` → fixed: `alias = {}` wins via `semanticMutationInitializers(binding, assignmentExpr)` → local write only; control with `alias` still `globalThis` still invalidates global URL (specifier `null`); destructuring-order tests (96-114) unaffected; 1742/1742 JS domain, `check:fast` green | unresolved; fix reply 4280461439 |
+| **4280476067** | **P1: custom member aliases attributed to the intrinsic — `local.call = …` for `local = custom.call` wrote `[i,F,p,call,call]`, turning a later legitimate `FP.call.call` opaque** | no — fixed | `a79c205a8` (local): `capturedInvocationMember` requires the member owner to resolve to a provable callable (`intrinsicPath`/`boundIntrinsic`) | reproduced at `025187d94` — `[i,F,p,call,call]` retained for the custom alias → fixed: write dropped, trailing call stays `known`, window finding retained in public analysis; 45/45 capture, 1745/1745 JS domain | unresolved; fix reply 4289923344 |
+| **4280540503** | **P1: owner-replaced member still canonicalized — `change.call = {call: noop}` before `invoke = change.call` made `Reflect.apply(invoke.call, …)` claim `Object.create`** | no — fixed | `a79c205a8` (local): same gate checks `intrinsicReadChanged(member, [ownerPath, key])` — the owner-specific slot must be unwritten at capture | reproduced at `025187d94` — `[i,O,create]` wrongly retained → fixed: no intrinsic write claimed; 1745/1745 JS domain | unresolved; fix reply 4289924888 |
+| **4280540514** | **P1: copied captured-member alias broke the chain — `copy = invoke` left `copy.call(…)` with no retained effect, dropping the real write** | no — fixed | `a79c205a8` (local): `capturedInvocationMember` follows zero-projection identifier aliases transitively with a `visited` cycle guard | reproduced at `025187d94` — invocation `undefined`, write missing → fixed: `known` `defineProperty` + `[i,O,create]` retained; 1745/1745 JS domain | unresolved; fix reply 4289925054 |
 
 ### Notes
 
@@ -130,7 +133,7 @@ review tool state, not independent reviewer acceptance.
 
 | Comment | Issue | Exists at `74e2dc324`? | Fix commit | Validation | Thread state |
 |---|---|---|---|---|---|
-| **4279727743** | **P2: explicit `webMcpAnnotations: null` replaced by valid defaults — fixture `??` treated null as absent** | no — fixed | `bcb92ebe3` (local): `Object.hasOwn(options, "webMcpAnnotations")` selects the override by presence; `null` case added to the invalid-payload `it.each` | null case fails against the pre-fix fixture, passes after; asserts retained registration, no fabricated `consequential`, `invalid_protocol_value` + `unavailable_sections`; 29/29 boundary tests, `check:fast` + `oxfmt --check` green | unresolved; fix reply 4280463497 |
+| **4279727743** | **P2: explicit `webMcpAnnotations: null` replaced by valid defaults — fixture `??` treated null as absent** | no — fixed | `bcb92ebe3` (local): `Object.hasOwn(options, "webMcpAnnotations")` selects the override by presence; `null` case added to the invalid-payload `it.each` | null case fails against the pre-fix fixture, passes after; asserts retained registration, no fabricated `consequential`, `invalid_protocol_value` + `unavailable_sections`; 29/29 boundary tests, `check:fast` + `oxfmt --check` green | resolved (reviewer); fix reply 4280463497 |
 
 - No production provider change; boolean `consequential` and omitted-annotation
   defaults unchanged. Author readiness: `HUMAN_ATTESTATION_REQUIRED` — skeleton
@@ -156,18 +159,16 @@ review tool state, not independent reviewer acceptance.
 
 ## Outstanding at ledger close
 
-1. #2465 (`025187d94`): new P1s `4278964125` (alias writes share the captured
-   member identity, `1a866d496`) and `4278964129` (write context vs leaf timing,
-   `025187d94`) fixed with committed regressions; earlier threads
-   `4262492100`/`4262677516` still unresolved — fixes verified intact at the new
-   head and reviewer re-check requested. Remaining blocker: **Author readiness —
-   `HUMAN_ATTESTATION_REQUIRED`** (human owner must fill `Human owner: @handle`
-   and check the three declarations). Awaiting CI on `025187d94` and reviewer
-   thread resolution.
-2. #3837 (`bcb92ebe3`): P2 `4279727743` fixed — fixture now selects the
-   annotation override by own-property presence (`Object.hasOwn`), explicit
-   `null` reaches the provider; browser-level null case added. Verified failing
-   on the old fixture, 29/29 boundary tests + `check:fast` + format green.
+1. #2465 (`a79c205a8`): fourth-wave P1s `4280476067`/`4280540503`/
+   `4280540514` fixed by a single change — `capturedInvocationMember` now
+   follows transitive stable aliases and only canonicalizes when the member
+   owner is a provable callable whose own slot was unwritten at capture.
+   Third-wave `4278964125`/`4278964129` (`1a866d496`, `025187d94`) resolved by
+   reviewer. `4262492100`/`4262677516` still open with re-review requested.
+   `mergeable_state` readback: `clean`. Remaining blocker: **Author readiness —
+   `HUMAN_ATTESTATION_REQUIRED`**. Awaiting CI on `a79c205a8`.
+2. #3837 (`bcb92ebe3`): P2 `4279727743` fixed (`Object.hasOwn` override +
+   null case) and the thread is **resolved**; `mergeable_state` `clean`.
    Same `HUMAN_ATTESTATION_REQUIRED` on author readiness.
 3. #2263: closed unmerged; production absorbed upstream (`f6905719c`).
    Remaining test coverage carried by #3837.
