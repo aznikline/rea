@@ -59,9 +59,10 @@ review tool state, not independent reviewer acceptance.
 | **4290355697** | **P1: legitimate re-entry rejected by node-only cycle detection — `invoke.call(invoke, change, …)` revisits `invoke` under a different invocation state** | no — fixed | `111881cab` (local): `visited` keys on (callee id, receiver id, explicit-receiver flag, argument count, virtual member key@read node) instead of node identity; same-state cycles still fail closed | reproduced at `21dfa5997` — invocation `undefined`, write missing → fixed: `known` + `[i,O,create]`; 61/61 capture, 1761/1761 JS domain | unresolved; fix reply 4291062886 |
 | **4290576830** | **P1: nested direct invocation member dropped — `change.call.call(change, …)` had `memberObject` a member expression that `memberRead` refused (identifiers only)** | no — fixed | `111881cab` (local): `capturedInvocationMember` accepts member expressions — owner/key read directly off the node, owner resolved through the same provable-callable chain (bound, intrinsic, or captured) | reproduced at `21dfa5997` — no effect recorded → fixed: `known` + `[i,O,create]`; 61/61 capture, 1761/1761 JS domain | unresolved; fix reply 4291063037 |
 | **4290576840** | **P1: destructured capture timestamp at RHS owner, not the projected property read — `const {missing: x = (change.call = noop), call: invoke} = change` missed the default's write** | no — fixed | `111881cab` (local): `projectedCaptureAt` locates the `ObjectProperty` leaf for the projected key inside the declarator's `ObjectPattern`; `at` = that leaf, so the inline slot-write check evaluates at the property-read offset | reproduced at `21dfa5997` — replaced member captured intact → `known` claimed → fixed: `replaced` → `opaque`, no `[i,O,create]`; 61/61 capture, 1761/1761 JS domain | unresolved; fix reply 4291063182 |
-| **4291090875** | **P1: explicit receiver ignored by direct `.bind` member — `Reflect.apply(change.bind, Object.defineProperty, […])` bound `change` instead of the supplied receiver, reporting a write to `Object.create`** | no — fixed | `2bf3a74e8` (local): bind target follows `explicitReceiver ? receiver : memberObject`, the same rule as call/apply — direct member callees honor `Reflect.apply` receivers | reproduced at `111881cab` — `decorate` bound `change` → `[i,O,create]` falsely retained → fixed: `metadata.x` write only, no `create`; 63/63 capture, 1763/1763 JS domain | unresolved; fix reply 4291526569 |
+| **4291090875** | **P1: explicit receiver ignored by direct `.bind` member — `Reflect.apply(change.bind, Object.defineProperty, […])` bound `change` instead of the supplied receiver, reporting a write to `Object.create`** | no — fixed | `2bf3a74e8` (local): bind target follows `explicitReceiver ? receiver : memberObject`, the same rule as call/apply — direct member callees honor `Reflect.apply` receivers | reproduced at `111881cab` — `decorate` bound `change` → `[i,O,create]` falsely retained → fixed: `metadata.x` write only, no `create`; 63/63 capture, 1763/1763 JS domain | resolved (reviewer); fix reply 4291526569 |
 | **4291115393** | **P1: same root as `4291090875` — `Reflect.apply(change.bind, noop, [null])` bound `change`, not `noop`; a fake `Object.create` replacement could suppress a valid BrowserWindow** | no — fixed | `2bf3a74e8` (local): shared fix — explicit receiver wins for direct `.bind` member calls; plain `x.bind(…)` still targets the member owner | reproduced at `111881cab` — covered by the same regression test; 63/63 capture, 1763/1763 JS domain | unresolved; fix reply 4291526990 |
 | **4291115399** | **P1: duplicate destructured keys matched by first key — `{call: first, missing: x = (change.call = noop), call: invoke}` positioned `invoke`'s capture at `first`'s earlier read** | no — fixed | `2bf3a74e8` (local): `projectedCaptureAt` selects the leaf carrying the binding's name (later duplicate wins); falls back to the first key match only when no leaf declares the name | reproduced at `111881cab` — replaced member captured intact → `known` claimed → fixed: `opaque`, no `[i,O,create]`; 63/63 capture, 1763/1763 JS domain | unresolved; fix reply 4291527261 |
+| **4291612841** | **P1: replaced state not propagated through nested captures — `change.call = {call: poison}; invoke = change.call; outer = invoke.call; outer()` lost the replaced marker in the recursive owner proof, recording neither call nor effect while `poison` runs** | no — fixed | `efd68b4a3` (local): the recursive `capturedInvocationMember(owner)` result propagates `{replaced: true, path}` instead of being discarded | reproduced at `2bf3a74e8` — invocation unresolved, no effect → fixed: `opaque` at `[i,O,dP,call]` + `["intrinsic"]`; 64/64 capture, 1764/1764 JS domain, `check:fast` green | unresolved; fix reply 4291834601 |
 
 ### Notes
 
@@ -177,17 +178,16 @@ review tool state, not independent reviewer acceptance.
 
 ## Outstanding at ledger close
 
-1. #2465 (`2bf3a74e8`): ninth wave — three P1s (`4291090875` +
-   `4291115393` shared root: explicit receiver ignored in direct `.bind`
-   member calls; `4291115399`: duplicate-key destructured capture
-   matched first key) fixed and replied; awaiting reviewer. Eighth wave
-   six P1s fixed in `111881cab`; earlier waves as listed above — all
-   threads unresolved pending reviewer despite fixes in place.
-   **CI on `111881cab`: all lanes green** — CI required, Portable tests,
-   Source tests, Test shards (1-5), Static checks, Build package, Docs,
-   Greptile — no flakes this run.
+1. #2465 (`efd68b4a3`): tenth wave — P1 `4291612841` (replaced state not
+   propagated through nested captured owners) fixed and replied;
+   awaiting reviewer. `4291090875` resolved by reviewer. Ninth wave
+   `4291090875`/`4291115393`/`4291115399` fixed in `2bf3a74e8`; earlier
+   waves as listed above.
+   **CI on `2bf3a74e8`: all lanes green** — 18 success, 16 skipped, 0
+   failures (CI required, Portable tests, Source tests, Test shards
+   1-5, Static checks, Build, Docs, Greptile).
    `mergeable_state` readback: `BLOCKED` (Author readiness placeholders;
-   CI re-running on `2bf3a74e8`).
+   CI re-running on `efd68b4a3`).
    CI on `8e0853a84` (run `38841115324`): Static checks failed on `knip` —
    the `8e0853a84` refactor left `intrinsicInvocationMemberPath` an unused
    export; fixed in `21dfa5997` by reworking it to a key-parameterized
