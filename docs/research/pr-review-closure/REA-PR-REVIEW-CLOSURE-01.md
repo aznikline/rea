@@ -68,6 +68,9 @@ review tool state, not independent reviewer acceptance.
 | **4292312211** | **P1: captured-member bind fallback skipped `bindReads` — `invoke.bind = () => () => {}` writes `[i,F,p,call,bind]`; `invoke.bind(change,null)` still modeled as bound FP.call → false `Object.create` claim** | no — fixed | `8fbb88eb2` (local): the fallback runs `bindReads.some(capture => intrinsicReadChanged(capture, [...memberPath,"bind"]))`, covering the own slot `[i,F,p,call,bind]` and canonical `[i,F,p,bind]` | reproduced at `c8048a1ec` — `changed()` resolved `known` → fixed: `opaque`; 69/69 capture, 1769/1769 JS domain | unresolved; fix reply 4292545821 |
 | **4292312222** | **P1: mixed nested captures miss the intermediate canonical slot — `Function.prototype.call = {apply: noop}` before `{call: {apply: invoke}}` was not detected; `[i,F,p,call]` never checked** | no — fixed | `8fbb88eb2` (local): level 0 checks `[ownerPath,seg]` + `[i,F,p,seg]` (+ owner-canonical nested), level i checks `[i,F,p,proj[i-1],proj[i]]` + `[i,F,p,proj[i]]`; replaced → `opaque` at the matched slot | reproduced at `c8048a1ec` — resolved `known`, claimed create → fixed: `opaque` at `[i,F,p,call]`; 69/69, 1769/1769 | unresolved; fix reply 4292546121 |
 | **4292312232** | **P1: all projection levels checked at the final leaf's offset — `change.call = noop` inside an inner default falsely marked the earlier outer read replaced; also the resolver re-checked `[bound.path,method]` on virtual-member iterations (synthetic owner read that does not exist)** | no — fixed | `8fbb88eb2` (local): `projectedCaptureAts` returns per-level timing nodes (intermediate level = property key, which exits before the value subtree's defaults; final = bound leaf); each level's slots evaluated at its own offset; resolver skips `[bound.path,method]` when `virtual !== undefined` in both call/apply and bind branches | reproduced at `c8048a1ec` — `opaque` at `[i,O,dP]` → fixed: `known` `[i,O,defineProperty]`; 69/69, 1769/1769 | unresolved; fix reply 4292546419 |
+| **4292375555** | **P1: transparent wrapper around the whole destructuring LHS — `([change.call, …] as any) = [replacement]` defeated every `isPattern` gate → no RHS-before-pattern ordering, no per-leaf registration, effects retained at assignment exit** | no — fixed | `79af1328f` (local): all four `isPattern` gates unwrap the target — `childKeys` ordering, enter-time leaf registration, `for…of` loop guard, exit-time `retainTargets` gate | reproduced at `8fbb88eb2` — new `it.each` case failed (window emitted) → fixed: passes; 71/71 capture, 1771/1771 JS domain | unresolved; fix reply 4293363584 |
+| **4292375570** | **P1: per-level capture timing — same issue as `4292312232`, generated against `c8048a1ec` before `8fbb88eb2` landed** | no — already fixed | `8fbb88eb2` (prior commit): per-level timing nodes + inherited-slot checks + virtual-iteration gate | reviewer's exact example is the `times each projected level at its own property read` regression test — fails on `c8048a1ec`, passes on `8fbb88eb2` | unresolved; fix reply 4293364378 |
+| **4292689788** | **P1: captured-owner recursion depth cap `depth < 4` — six-alias chain `f.call(…)` unresolved → effect dropped entirely** | no — fixed | `79af1328f` (local): shared binding-`visited` set threads through recursion; no fixed depth; cyclic owner chains still terminate | reproduced at `8fbb88eb2` — invocation `undefined` → fixed: `known` `[i,O,defineProperty]` + `[i,O,create]`; 71/71, 1771/1771 | unresolved; fix reply 4293365130 |
 
 ### Notes
 
@@ -183,17 +186,15 @@ review tool state, not independent reviewer acceptance.
 
 ## Outstanding at ledger close
 
-1. #2465 (`8fbb88eb2`): twelfth wave — P1 `4292312211` (bindReads skipped
-   in captured-member bind fallback), P1 `4292312222` (intermediate
-   canonical member slot unchecked), P1 `4292312232` (all projection
-   levels timed at final leaf + virtual-iteration owner-slot re-check)
-   all reproduced at `c8048a1ec`, fixed, and replied; awaiting reviewer.
-   **CI on `c8048a1ec`: all lanes green** — Build/package, CI required,
-   Classify changes, Conventional PR title, Docs Generation, Greptile,
-   real-javascript-recovery, Native package baseline, Portable tests,
-   Source tests, Static checks, Test shards 1-5 pass; 16 platform lanes
-   skipped.
-   Eleventh wave `4291952113`/`4291952122` fixed in `c8048a1ec`; tenth
+1. #2465 (`79af1328f`): thirteenth wave — P1 `4292375555` (wrapped whole
+   LHS defeated all `isPattern` gates), P1 `4292375570` (per-level timing;
+   already fixed in `8fbb88eb2`, comment generated against `c8048a1ec`),
+   P1 `4292689788` (captured-owner depth cap) all handled and replied;
+   awaiting reviewer.
+   **CI on `8fbb88eb2`: all lanes green** — 17 pass, 16 skipped, 0
+   failures.
+   Twelfth wave `4292312211`/`4292312222`/`4292312232` fixed in
+   `8fbb88eb2`; eleventh `4291952113`/`4291952122` in `c8048a1ec`; tenth
    `4291612841` in `efd68b4a3`. `4291090875` resolved by reviewer.
    Ninth wave `4291090875`/`4291115393`/`4291115399` fixed in `2bf3a74e8`;
    earlier waves as listed above.
