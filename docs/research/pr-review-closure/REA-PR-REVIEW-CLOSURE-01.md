@@ -74,6 +74,9 @@ review tool state, not independent reviewer acceptance.
 | **4293408347** | **P1: removing the depth cap left recursion itself — flat files with thousands of distinct-alias owners (`a0 = bound.call; a1 = a0.call; …`) exhaust the JS call stack; the `visited` set cannot stop a long acyclic chain** | no — fixed | `ac857c881` (local): `capturedInvocationMember` parses one level and pushes unproven owners onto an explicit `pending` worklist; folded frames take their owner path from the resolved member key and run per-level slot checks; shared `visited` still terminates cycles; replaced/unknown propagation preserved | reproduced at `79af1328f` — recursive version fails at depth 4000 (135s run, resolution drops the effect) → fixed: `known` + `[i,O,create]`; committed regression at depth 300 (`follows long captured-member owner chains iteratively`); 74/74, 1774/1774 | unresolved; fix reply 4293854413 |
 | **4293491180** | **P1: invocation cycle key collides on equal arity — key carried `arguments_.length` but not argument identities** | partially — direction fixed, cited input does not collide | `ac857c881` (local): state key now includes `arguments_.map(idOf)` identities per your direction | instrumented the resolver on the exact example — each apply expansion consumes a distinct receiver node, so `change.apply` states differ in receiver identity and the arity key did not collide; write was already retained. Arg identities now in key regardless; regression `re-enters a captured member with different argument identities` pins `known` `[i,O,defineProperty]` + `[i,O,create]`; 74/74, 1774/1774 | unresolved; fix reply 4293855804 |
 | **4293491186** | **P1: destructured captures with recoverable container segments rejected — `[{call: invoke}] = [change]` produces projection `[0,"call"]` and the member-only guard discards it** | no — fixed | `ac857c881` (local): `containerElement` descends literal Array/Object segments into the RHS before validating the invocation-member suffix; `projectedCaptureAts` descends ArrayPattern element positions for per-level timing; interleaved member→container still rejected | reproduced at `79af1328f` — `resolves a member capture through a literal container segment` failed → fixed: `known` `[i,O,defineProperty]` + `[i,O,create]`; 74/74, 1774/1774 | unresolved; fix reply 4293856138 |
+| **4293896984** | **P1: `containerElement` first-match ignores overwrite semantics — duplicate keys resolve the shadowed value, spreads/methods after the match are ignored; array spread shifts AST index vs runtime index** | no — fixed | `8da8ab2b9` (local): effective-slot scan — LAST matching data property wins; trailing spread or method/getter match resets to unknown; array `SpreadElement` at/before index bails; holes bail | reproduced at `ac857c881` — `reads the effective last value for duplicate literal keys` + `rejects a literal container behind a spread` fabricated `[i,O,create]` → fixed: owner unprovable, no write; 77/77, 1777/1777 | unresolved; fix reply 4300867689 |
+| **4293947964** | **P1: pending virtual member cleared when owner resolves to an intrinsic path — `[{call: invoke}] = [Object.defineProperty]` returned `Object.defineProperty` with unshifted arguments, recording an opaque intrinsic mutation instead of `metadata.x`** | no — fixed | `8da8ab2b9` (local): virtual member consumed before `intrinsicPath` acceptance — call/apply shift `receiver = arguments[0]` + slice args, then continue so the owner's `intrinsicReadChanged` still runs; bind returns a bound value with explicit-receiver target selection | reproduced at `ac857c881` — `applies a captured virtual member before an owner intrinsic path` failed → fixed: `known` `[i,O,defineProperty]` with `arguments[0]` = `metadata`; also covers direct initializer `const invoke = Object.defineProperty.call`; 77/77, 1777/1777 | unresolved; fix reply 4300867908 |
+| **4293947973** | **P1: same overwrite-semantics root as `4293896984` — `{slot: change, slot: {call: noop}}` first-match scan fabricated an `Object.create` write** | no — fixed | `8da8ab2b9` (local): shared `containerElement` effective-last-entry fix | covered by the duplicate-key regression; earlier spreads before the last literal still resolve correctly; 77/77, 1777/1777 | unresolved; fix reply 4300867993 |
 
 ### Notes
 
@@ -189,11 +192,16 @@ review tool state, not independent reviewer acceptance.
 
 ## Outstanding at ledger close
 
-1. #2465 (`ac857c881`): fourteenth wave — P1 `4293408347` (recursive
-   owner descent → iterative worklist), P1 `4293491180` (arity-only
-   cycle key → argument identities; cited input verified non-colliding),
-   P1 `4293491186` (literal container projection segments) all handled
-   and replied; awaiting reviewer.
+1. #2465 (`8da8ab2b9`): fifteenth wave — P1 `4293896984` + `4293947973`
+   (literal overwrite/spread semantics in `containerElement`), P1
+   `4293947964` (virtual member consumed before intrinsic owner path)
+   all handled and replied; awaiting reviewer.
+   **CI on `ac857c881`: all lanes green** — 17 pass, 16 skipped, 0
+   failures.
+   Fourteenth wave `4293408347` (iterative owner descent) /
+   `4293491180` (argument-identity cycle key; cited input verified
+   non-colliding) / `4293491186` (literal container projections) fixed
+   in `ac857c881`.
    **CI on `8fbb88eb2`: all lanes green** — 17 pass, 16 skipped, 0
    failures. **CI on `79af1328f`: all lanes green** — 18 success,
    16 skipped.
@@ -208,7 +216,7 @@ review tool state, not independent reviewer acceptance.
    failures (CI required, Portable tests, Source tests, Test shards
    1-5, Static checks, Build, Docs, Greptile).
    `mergeable_state` readback: `BLOCKED` (Author readiness placeholders;
-   CI re-running on `efd68b4a3`).
+   CI re-running on `8da8ab2b9`).
    CI on `8e0853a84` (run `38841115324`): Static checks failed on `knip` —
    the `8e0853a84` refactor left `intrinsicInvocationMemberPath` an unused
    export; fixed in `21dfa5997` by reworking it to a key-parameterized
