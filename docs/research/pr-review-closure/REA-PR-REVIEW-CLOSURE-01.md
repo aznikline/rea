@@ -77,6 +77,7 @@ review tool state, not independent reviewer acceptance.
 | **4293896984** | **P1: `containerElement` first-match ignores overwrite semantics — duplicate keys resolve the shadowed value, spreads/methods after the match are ignored; array spread shifts AST index vs runtime index** | no — fixed | `8da8ab2b9` (local): effective-slot scan — LAST matching data property wins; trailing spread or method/getter match resets to unknown; array `SpreadElement` at/before index bails; holes bail | reproduced at `ac857c881` — `reads the effective last value for duplicate literal keys` + `rejects a literal container behind a spread` fabricated `[i,O,create]` → fixed: owner unprovable, no write; 77/77, 1777/1777 | unresolved; fix reply 4300867689 |
 | **4293947964** | **P1: pending virtual member cleared when owner resolves to an intrinsic path — `[{call: invoke}] = [Object.defineProperty]` returned `Object.defineProperty` with unshifted arguments, recording an opaque intrinsic mutation instead of `metadata.x`** | no — fixed | `8da8ab2b9` (local): virtual member consumed before `intrinsicPath` acceptance — call/apply shift `receiver = arguments[0]` + slice args, then continue so the owner's `intrinsicReadChanged` still runs; bind returns a bound value with explicit-receiver target selection | reproduced at `ac857c881` — `applies a captured virtual member before an owner intrinsic path` failed → fixed: `known` `[i,O,defineProperty]` with `arguments[0]` = `metadata`; also covers direct initializer `const invoke = Object.defineProperty.call`; 77/77, 1777/1777 | unresolved; fix reply 4300867908 |
 | **4293947973** | **P1: same overwrite-semantics root as `4293896984` — `{slot: change, slot: {call: noop}}` first-match scan fabricated an `Object.create` write** | no — fixed | `8da8ab2b9` (local): shared `containerElement` effective-last-entry fix | covered by the duplicate-key regression; earlier spreads before the last literal still resolve correctly; 77/77, 1777/1777 | unresolved; fix reply 4300867993 |
+| **4300883741** | **P1: virtual-member-on-intrinsic branch kept the owner as callable under an explicit receiver — `Reflect.apply(invoke, noop, args)` fabricated an `Object.create` write instead of calling `noop`** | no — fixed | `3e18226dc` (local): `callable = explicitReceiver ? receiver : callee` before consuming call/apply — same rule as the direct member-read branch; opaque at owner path when no callable expression exists | reproduced at `8da8ab2b9` — `selects the explicit receiver over the captured intrinsic owner` failed → fixed: `noop` resolved, no write; 78/78, 1778/1778 | unresolved; fix reply 4301210448 |
 
 ### Notes
 
@@ -192,12 +193,16 @@ review tool state, not independent reviewer acceptance.
 
 ## Outstanding at ledger close
 
-1. #2465 (`8da8ab2b9`): fifteenth wave — P1 `4293896984` + `4293947973`
+1. #2465 (`3e18226dc`): fifteenth wave — P1 `4293896984` + `4293947973`
    (literal overwrite/spread semantics in `containerElement`), P1
-   `4293947964` (virtual member consumed before intrinsic owner path)
+   `4293947964` (virtual member consumed before intrinsic owner path),
+   P1 `4300883741` (explicit receiver preferred over captured owner)
    all handled and replied; awaiting reviewer.
    **CI on `ac857c881`: all lanes green** — 17 pass, 16 skipped, 0
-   failures.
+   failures. CI on `8da8ab2b9` (run `38994057455`): `Source tests` failed
+   on `BinarySessionStatus.test.ts` capability-projection assertions —
+   unrelated to the diff (only `src/domain/javascript/` touched); passes
+   locally, classified as flake.
    Fourteenth wave `4293408347` (iterative owner descent) /
    `4293491180` (argument-identity cycle key; cited input verified
    non-colliding) / `4293491186` (literal container projections) fixed
