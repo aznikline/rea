@@ -199,10 +199,13 @@ review tool state, not independent reviewer acceptance.
    P1 `4300883741` (explicit receiver preferred over captured owner)
    all handled and replied; awaiting reviewer.
    **CI on `ac857c881`: all lanes green** — 17 pass, 16 skipped, 0
-   failures. CI on `8da8ab2b9` (run `38994057455`): `Source tests` failed
-   on `BinarySessionStatus.test.ts` capability-projection assertions —
-   unrelated to the diff (only `src/domain/javascript/` touched); passes
-   locally, classified as flake.
+   failures. CI on `8da8ab2b9` (run `38994057455`): `Source tests` and
+   `Portable tests` both failed on `BinarySessionStatus.test.ts`
+   capability-projection assertions (`status.capabilities` undefined) —
+   the test's imports (`unicodeCodePointOrder`, `AnalysisProviderRegistry`,
+   `BinarySessionStatus`) have no dependency on the touched
+   `src/domain/javascript/` files and it passes locally; classified as
+   an environment/base-level failure, not diff-attributable.
    Fourteenth wave `4293408347` (iterative owner descent) /
    `4293491180` (argument-identity cycle key; cited input verified
    non-colliding) / `4293491186` (literal container projections) fixed
